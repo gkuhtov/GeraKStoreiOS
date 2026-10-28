@@ -42,7 +42,6 @@ public struct InstallActivityWidget: Widget {
                         .foregroundColor(Color(hex: "#FF75B5"))
                 }
 
-                // Шкала прогресса
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule()
@@ -67,7 +66,6 @@ public struct InstallActivityWidget: Widget {
 
         } dynamicIsland: { context in
             DynamicIsland {
-                // Развернутый вид Dynamic Island (Expanded)
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.down.circle.fill")
@@ -101,19 +99,16 @@ public struct InstallActivityWidget: Widget {
                     .padding(.bottom, 6)
                 }
             } compactLeading: {
-                // Свернутый компактный вид: Иконка слева
                 Image(systemName: "arrow.down.app.fill")
                     .foregroundColor(Color(hex: "#FF2E93"))
                     .font(.system(size: 13))
                     .padding(.leading, 4)
             } compactTrailing: {
-                // Свернутый компактный вид: Процент справа
                 Text("\(Int(context.state.progress * 100))%")
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundColor(Color(hex: "#FF75B5"))
                     .padding(.trailing, 4)
             } minimal: {
-                // Минимальный вид, если остров занят несколькими процессами
                 Image(systemName: "arrow.down.circle.fill")
                     .foregroundColor(Color(hex: "#FF2E93"))
             }

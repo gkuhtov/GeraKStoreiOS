@@ -9,9 +9,11 @@ echo "==> Определение SDK iOS..."
 SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
 TARGET="arm64-apple-ios16.0"
 
-echo "==> Компиляция Swift-исходников в бинарник Mach-O..."
-SWIFT_FILES=$(find GeraKStore -name "*.swift")
+echo "==> Поиск исходников приложения..."
+# Исключаем файлы отдельного бандла виджета из основного исполняемого файла
+SWIFT_FILES=$(find GeraKStore -name "*.swift" ! -name "GeraKStoreWidgetsBundle.swift" ! -name "InstallActivityWidget.swift")
 
+echo "==> Компиляция Swift-исходников в бинарник Mach-O..."
 xcrun --sdk iphoneos swiftc \
     -target $TARGET \
     -sdk $SDK_PATH \
@@ -57,6 +59,8 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
     </array>
     <key>NSFaceIDUsageDescription</key>
     <string>Используется для защиты доступа к GeraKStore</string>
+    <key>NSSupportsLiveActivities</key>
+    <true/>
 </dict>
 </plist>
 PLIST
