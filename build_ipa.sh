@@ -7,7 +7,7 @@ mkdir -p Payload/GeraKStore.app
 
 echo "==> Определение SDK iOS..."
 SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-TARGET="arm64-apple-ios16.0"
+TARGET="arm64-apple-ios16.1"
 
 echo "==> Поиск исходников приложения..."
 # Исключаем файлы отдельного бандла виджета из основного исполняемого файла
@@ -48,7 +48,7 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>MinimumOSVersion</key>
-    <string>16.0</string>
+    <string>16.1</string>
     <key>UIRequiredDeviceCapabilities</key>
     <array>
         <string>arm64</string>

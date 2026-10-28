@@ -3,11 +3,11 @@ import ActivityKit
 
 public final class LiveActivityManager {
     public static let shared = LiveActivityManager()
-    private var currentActivity: Activity<InstallActivityAttributes>? = nil
 
     private init() {}
 
     public func startActivity(appName: String, iconUrl: String) {
+        guard #available(iOS 16.1, *) else { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         let attributes = InstallActivityAttributes(appName: appName, iconUrl: iconUrl)
@@ -18,7 +18,7 @@ public final class LiveActivityManager {
         )
 
         do {
-            currentActivity = try Activity<InstallActivityAttributes>.request(
+            _ = try Activity<InstallActivityAttributes>.request(
                 attributes: attributes,
                 contentState: initialContentState,
                 pushType: nil
@@ -29,20 +29,25 @@ public final class LiveActivityManager {
     }
 
     public func update(progress: Float, status: String, stage: String) {
+        guard #available(iOS 16.1, *) else { return }
         Task {
             let updatedState = InstallActivityAttributes.ContentState(
                 progress: progress,
                 statusText: status,
                 stage: stage
             )
-            await currentActivity?.update(using: updatedState)
+            for activity in Activity<InstallActivityAttributes>.activities {
+                await activity.update(using: updatedState)
+            }
         }
     }
 
     public func end() {
+        guard #available(iOS 16.1, *) else { return }
         Task {
-            await currentActivity?.end(dismissalPolicy: .immediate)
-            currentActivity = nil
+            for activity in Activity<InstallActivityAttributes>.activities {
+                await activity.end(dismissalPolicy: .immediate)
+            }
         }
     }
 }
