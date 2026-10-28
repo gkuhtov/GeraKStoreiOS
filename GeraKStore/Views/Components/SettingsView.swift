@@ -47,7 +47,7 @@ public struct SettingsView: View {
                     }
                     .padding(.vertical, 4)
                 }
-                .listRowBackground(theme.glassMaterial)
+                .listRowBackground(Rectangle().fill(theme.glassMaterial))
 
                 Section(header: Text("Настройки").font(.footnote).foregroundColor(.secondary)) {
                     Toggle(isOn: $useFaceID) {
@@ -79,7 +79,7 @@ public struct SettingsView: View {
                         SettingRow(icon: "bubble.left.and.bubble.right.fill", title: "Чат в Telegram", color: .green)
                     }
                 }
-                .listRowBackground(theme.glassMaterial)
+                .listRowBackground(Rectangle().fill(theme.glassMaterial))
 
                 Section(header: Text("Расширенный").font(.footnote).foregroundColor(.secondary)) {
                     Toggle(isOn: $smartBackground) {
@@ -102,7 +102,7 @@ public struct SettingsView: View {
                         }
                     }
                 }
-                .listRowBackground(theme.glassMaterial)
+                .listRowBackground(Rectangle().fill(theme.glassMaterial))
 
                 Section(header: Text("Хранилище и о приложении").font(.footnote).foregroundColor(.secondary)) {
                     Button(action: { showClearCacheAlert = true }) {
@@ -136,7 +136,7 @@ public struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                .listRowBackground(theme.glassMaterial)
+                .listRowBackground(Rectangle().fill(theme.glassMaterial))
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)

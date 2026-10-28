@@ -34,7 +34,7 @@ public struct VersionSelectionSheet: View {
                             .padding(.top, 4)
                         }
                         .padding(.vertical, 6)
-                        .listRowBackground(theme.glassMaterial)
+                        .listRowBackground(Rectangle().fill(theme.glassMaterial))
                     }
                 }
             }
@@ -70,7 +70,7 @@ public struct TweakInstallSheet: View {
                     TextField("Кастомное имя приложения", text: $customName)
                         .foregroundColor(.white)
                 }
-                .listRowBackground(theme.glassMaterial)
+                .listRowBackground(Rectangle().fill(theme.glassMaterial))
 
                 Section(header: Text("Внедрение dylib / твика").foregroundColor(.secondary)) {
                     HStack {
@@ -84,7 +84,7 @@ public struct TweakInstallSheet: View {
                     }
                     .foregroundColor(theme.rosePrimary)
                 }
-                .listRowBackground(theme.glassMaterial)
+                .listRowBackground(Rectangle().fill(theme.glassMaterial))
 
                 Section {
                     Button(action: {
