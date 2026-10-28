@@ -3,6 +3,7 @@ import Foundation
 public struct PathConfig {
     public static let certificatesFolder = "Certificates"
     public static let tempBuildFolder = "TempBuilds"
+    public static let tempCacheFolder = "TempCache"
     public static let signedAppsFolder = "SignedApps"
     public static let downloadsFolder = "Downloads"
 
