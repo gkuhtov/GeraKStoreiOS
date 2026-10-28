@@ -1,21 +1,20 @@
 import Foundation
 
 public struct PathConfig {
-    public static var rootDirectoryName = "GeraKStoreData"
-    public static var ipaDownloadsFolder = "Downloads"
-    public static var signedOutputFolder = "SignedPackages"
-    public static var certificatesFolder = "UserCerts"
-    public static var dylibInjectionsFolder = "Tweaks"
-    public static var tempCacheFolder = "TempBuild"
+    public static let certificatesFolder = "Certificates"
+    public static let tempBuildFolder = "TempBuilds"
+    public static let signedAppsFolder = "SignedApps"
+    public static let downloadsFolder = "Downloads"
 
     public static func getDirectory(_ folderName: String) -> URL {
         let fileManager = FileManager.default
-        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let target = base.appendingPathComponent(rootDirectoryName).appendingPathComponent(folderName)
-        
-        if !fileManager.fileExists(atPath: target.path) {
-            try? fileManager.createDirectory(at: target, withIntermediateDirectories: true)
+        let documentDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let targetDirectory = documentDirectory.appendingPathComponent(folderName, isDirectory: true)
+
+        if !fileManager.fileExists(atPath: targetDirectory.path) {
+            try? fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
         }
-        return target
+
+        return targetDirectory
     }
 }
