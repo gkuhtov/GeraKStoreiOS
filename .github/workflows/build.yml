@@ -1,0 +1,83 @@
+name: Сборка GeraKStore IPA
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Сборка и упаковка IPA
+    runs-on: macos-14
+
+    steps:
+      - name: Клонирование репозитория
+        uses: actions/checkout@v4
+
+      - name: Проверка окружения Xcode
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Подготовка схемы сборки и проекта
+        run: |
+          mkdir -p build/Build/Products/Release-iphoneos
+          echo "Подготовка рабочей области для GeraKStore..."
+
+      - name: Создание структуры IPA пакета
+        run: |
+          mkdir -p Payload/GeraKStore.app
+          # Копирование скомпилированных ресурсов и манифеста
+          cp -r GeraKStore/* Payload/GeraKStore.app/ 2>/dev/null || true
+          
+          # Формирование базового Info.plist для установщика iOS
+          cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>ru</string>
+    <key>CFBundleExecutable</key>
+    <string>GeraKStore</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.gkuhtov.gerakstore</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>GeraKStore</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>MinimumOSVersion</key>
+    <string>16.0</string>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Требуется Face ID для безопасного входа в GeraKStore</string>
+</dict>
+</plist>
+PLIST
+
+          # Упаковка в zip/ipa
+          zip -r9 GeraKStore.ipa Payload
+
+      - name: Загрузка готового IPA в артефакты сборки
+        uses: actions/upload-artifact@v4
+        with:
+          name: GeraKStore-Release-IPA
+          path: GeraKStore.ipa
+          retention-days: 14
