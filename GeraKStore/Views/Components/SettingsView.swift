@@ -12,6 +12,7 @@ public struct SettingsView: View {
     @AppStorage("debugMode") private var debugMode: Bool = false
 
     @State private var showClearCacheAlert = false
+    @State private var showCertManager = false
     @State private var userUDID: String = "00008140-001878943C09801C"
 
     public init() {}
@@ -20,31 +21,36 @@ public struct SettingsView: View {
         NavigationStack {
             List {
                 Section {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(theme.buttonGradient)
-                                .frame(width: 36, height: 36)
-                            Image(systemName: "iphone.gen3")
-                                .font(.system(size: 18))
-                                .foregroundColor(.white)
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.deviceMarketingName)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.primary)
-                            
-                            Text("UDID: \(userUDID)")
-                                .font(.system(size: 11, design: .monospaced))
+                    Button(action: {
+                        HapticManager.shared.tap()
+                        showCertManager = true
+                    }) {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(theme.buttonGradient)
+                                    .frame(width: 36, height: 36)
+                                Image(systemName: "iphone.gen3")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.white)
+                            }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(device.deviceMarketingName)
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.primary)
+
+                                Text("UDID: \(userUDID)")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(.secondary)
-                                .lineLimit(1)
                         }
-                        
-                        Spacer()
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(theme.rosePrimary)
                     }
                     .padding(.vertical, 4)
                 }
@@ -118,6 +124,9 @@ public struct SettingsView: View {
                     Button("Готово") { dismiss() }
                         .foregroundColor(theme.rosePrimary)
                 }
+            }
+            .sheet(isPresented: $showCertManager) {
+                CertificateManagerView()
             }
             .alert("Очистить кэш?", isPresented: $showClearCacheAlert) {
                 Button("Отмена", role: .cancel) {}
