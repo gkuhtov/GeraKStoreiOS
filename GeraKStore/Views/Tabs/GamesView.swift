@@ -2,16 +2,24 @@ import SwiftUI
 
 public struct GamesView: View {
     @ObservedObject var theme = ThemeConfig.shared
+    @ObservedObject var catalog = CatalogService.shared
     @State private var selectedGenre = "Все"
     private let genres = ["Все", "Экшен", "Гонки", "Стратегии", "РПГ", "Симуляторы", "Квесты"]
 
     public init() {}
 
+    private var filteredGames: [AppItem] {
+        let games = catalog.allApps.filter { $0.category == "games" }
+        if selectedGenre == "Все" {
+            return games
+        }
+        return games.filter { $0.subcategory == selectedGenre }
+    }
+
     public var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Горизонтальный ряд чипов жанров игр
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
                             ForEach(genres, id: \.self) { genre in
@@ -41,33 +49,26 @@ public struct GamesView: View {
                     }
                     .padding(.top, 10)
 
-                    // Баннер топ-новинки
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("ПРОХОДИТ СЕЙЧАС")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(theme.roseSecondary)
-
-                        Text("Asphalt Legends Unite")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundColor(.white)
-
-                        Text("Аркадный гоночный экшен с улучшенной графикой и открытыми трассами.")
-                            .font(.system(size: 13))
-                            .foregroundColor(.gray)
-                    }
-                    .padding(20)
-                    .liquidGlass()
-                    .padding(.horizontal, 20)
-
-                    Text("Популярные игры")
+                    Text("Игры (\(filteredGames.count))")
                         .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
                         .padding(.horizontal, 20)
+
+                    LazyVStack(spacing: 12) {
+                        ForEach(filteredGames) { game in
+                            AppItemRow(app: game)
+                        }
+                    }
+                    .padding(.horizontal, 20)
 
                     Spacer(minLength: 40)
                 }
             }
             .background(theme.canvasBackground.ignoresSafeArea())
             .navigationTitle("Игры")
+            .refreshable {
+                catalog.loadCatalog()
+            }
         }
     }
 }

@@ -2,10 +2,19 @@ import SwiftUI
 
 public struct AppsView: View {
     @ObservedObject var theme = ThemeConfig.shared
+    @ObservedObject var catalog = CatalogService.shared
     @State private var selectedCategory = "Все"
     private let categories = ["Все", "Банки", "Фото и видео", "Музыка", "Соцсети", "Утилиты"]
 
     public init() {}
+
+    private var filteredApps: [AppItem] {
+        let apps = catalog.allApps.filter { $0.category == "apps" }
+        if selectedCategory == "Все" {
+            return apps
+        }
+        return apps.filter { $0.subcategory == selectedCategory }
+    }
 
     public var body: some View {
         NavigationStack {
@@ -40,21 +49,16 @@ public struct AppsView: View {
                     }
                     .padding(.top, 10)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("ПОПУЛЯРНЫЙ МОД")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(theme.roseSecondary)
+                    Text("Приложения (\(filteredApps.count))")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 20)
 
-                        Text("TikTok BHTikTok Plus")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundColor(.white)
-
-                        Text("Скачивание видео без водяного знака, смена региона и фоновое воспроизведение.")
-                            .font(.system(size: 13))
-                            .foregroundColor(.gray)
+                    LazyVStack(spacing: 12) {
+                        ForEach(filteredApps) { app in
+                            AppItemRow(app: app)
+                        }
                     }
-                    .padding(20)
-                    .liquidGlass()
                     .padding(.horizontal, 20)
 
                     Spacer(minLength: 40)
@@ -62,6 +66,9 @@ public struct AppsView: View {
             }
             .background(theme.canvasBackground.ignoresSafeArea())
             .navigationTitle("Приложения")
+            .refreshable {
+                catalog.loadCatalog()
+            }
         }
     }
 }

@@ -2,8 +2,10 @@ import SwiftUI
 
 public struct SearchView: View {
     @ObservedObject var theme = ThemeConfig.shared
+    @ObservedObject var catalog = CatalogService.shared
+
     @State private var searchText = ""
-    @State private var recentSearches = ["BHTikTok", "Сбербанк", "GTA: San Andreas", "ВКонтакте"]
+    @State private var recentSearches = ["BHTikTok", "Сбербанк", "Asphalt", "Т-Банк"]
     @State private var selectedSort = "По дате"
     @State private var showSortSheet = false
 
@@ -11,10 +13,28 @@ public struct SearchView: View {
 
     public init() {}
 
+    private var searchResults: [AppItem] {
+        if searchText.isEmpty {
+            return []
+        }
+        var results = catalog.allApps.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText) ||
+            $0.subcategory.localizedCaseInsensitiveContains(searchText) ||
+            $0.bundleId.localizedCaseInsensitiveContains(searchText)
+        }
+
+        switch selectedSort {
+        case "По названию (А-Я)":
+            results.sort { $0.name < $1.name }
+        default:
+            break
+        }
+        return results
+    }
+
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Поисковая строка и кнопка фильтра
                 HStack(spacing: 10) {
                     HStack {
                         Image(systemName: "magnifyingglass")
@@ -53,7 +73,6 @@ public struct SearchView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 20) {
-                        // Блок истории поиска
                         if searchText.isEmpty {
                             VStack(alignment: .leading, spacing: 12) {
                                 HStack {
@@ -97,11 +116,18 @@ public struct SearchView: View {
                             .padding(.horizontal, 20)
                             .padding(.top, 10)
                         } else {
-                            Text("Результаты для «\(searchText)»")
+                            Text("Результаты для «\(searchText)» (\(searchResults.count))")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.secondary)
                                 .padding(.horizontal, 20)
                                 .padding(.top, 10)
+
+                            LazyVStack(spacing: 12) {
+                                ForEach(searchResults) { item in
+                                    AppItemRow(app: item)
+                                }
+                            }
+                            .padding(.horizontal, 20)
                         }
 
                         Spacer(minLength: 40)
