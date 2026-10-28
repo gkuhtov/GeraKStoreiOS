@@ -3,27 +3,25 @@ name: Сборка GeraKStore IPA
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
   build:
-    name: Сборка и упаковка IPA
+    name: Компиляция Swift и сборка IPA
     runs-on: macos-14
 
     steps:
       - name: Клонирование репозитория
         uses: actions/checkout@v4
 
-      - name: Запуск скрипта сборки
+      - name: Сборка исполняемого файла и IPA
         run: |
           chmod +x build_ipa.sh
           ./build_ipa.sh
 
-      - name: Загрузка готового IPA в артефакты сборки
+      - name: Загрузка артефакта
         uses: actions/upload-artifact@v4
         with:
-          name: GeraKStore-Release-IPA
+          name: GeraKStore-IPA
           path: GeraKStore.ipa
-          retention-days: 14
+          retention-days: 7

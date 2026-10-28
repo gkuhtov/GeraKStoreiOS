@@ -1,12 +1,25 @@
 #!/bin/bash
 set -e
 
-echo "==> Подготовка каталогов сборки..."
+echo "==> Подготовка каталогов..."
 rm -rf Payload build GeraKStore.ipa
 mkdir -p Payload/GeraKStore.app
 
-echo "==> Копирование исходников и ресурсов..."
-cp -r GeraKStore/* Payload/GeraKStore.app/ 2>/dev/null || true
+echo "==> Определение SDK iOS..."
+SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+TARGET="arm64-apple-ios16.0"
+
+echo "==> Компиляция Swift-исходников в бинарник Mach-O..."
+SWIFT_FILES=$(find GeraKStore -name "*.swift")
+
+xcrun --sdk iphoneos swiftc \
+    -target $TARGET \
+    -sdk $SDK_PATH \
+    -O \
+    -parse-as-library \
+    -emit-executable \
+    -o Payload/GeraKStore.app/GeraKStore \
+    $SWIFT_FILES
 
 echo "==> Создание Info.plist..."
 cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
@@ -43,11 +56,11 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
         <string>UIInterfaceOrientationPortrait</string>
     </array>
     <key>NSFaceIDUsageDescription</key>
-    <string>Требуется Face ID для безопасного входа в GeraKStore</string>
+    <string>Используется для защиты доступа к GeraKStore</string>
 </dict>
 </plist>
 PLIST
 
 echo "==> Упаковка в GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Сборка завершена успешно!"
+echo "==> Готово! Сформирован рабочий IPA с исполняемым файлом."
