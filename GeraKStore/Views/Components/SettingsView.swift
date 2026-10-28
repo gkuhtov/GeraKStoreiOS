@@ -5,6 +5,7 @@ public struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var theme = ThemeConfig.shared
     @ObservedObject var storage = StorageManager.shared
+    @ObservedObject var device = DeviceManager.shared
 
     @AppStorage("useFaceID") private var useFaceID: Bool = false
     @AppStorage("smartBackground") private var smartBackground: Bool = true
@@ -24,13 +25,13 @@ public struct SettingsView: View {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(theme.buttonGradient)
                                 .frame(width: 36, height: 36)
-                            Image(systemName: "person.badge.shield.checkmark.fill")
+                            Image(systemName: "iphone.gen3")
                                 .font(.system(size: 18))
                                 .foregroundColor(.white)
                         }
                         
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Менеджер сертификатов")
+                            Text(device.deviceMarketingName)
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.primary)
                             
@@ -41,9 +42,9 @@ public struct SettingsView: View {
                         }
                         
                         Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.secondary)
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(theme.rosePrimary)
                     }
                     .padding(.vertical, 4)
                 }
@@ -68,38 +69,7 @@ public struct SettingsView: View {
                     }
 
                     Link(destination: URL(string: "https://t.me/gkuhtov")!) {
-                        SettingRow(icon: "megaphone.fill", title: "Резервный канал", color: .orange)
-                    }
-
-                    Link(destination: URL(string: "https://t.me/gkuhtov")!) {
                         SettingRow(icon: "paperplane.fill", title: "Канал в Telegram", color: .cyan)
-                    }
-
-                    Link(destination: URL(string: "https://t.me/gkuhtov")!) {
-                        SettingRow(icon: "bubble.left.and.bubble.right.fill", title: "Чат в Telegram", color: .green)
-                    }
-                }
-                .listRowBackground(Rectangle().fill(theme.glassMaterial))
-
-                Section(header: Text("Расширенный").font(.footnote).foregroundColor(.secondary)) {
-                    Toggle(isOn: $smartBackground) {
-                        Label {
-                            Text("Умный фон")
-                                .font(.system(size: 15))
-                        } icon: {
-                            Image(systemName: "sparkles")
-                                .foregroundColor(theme.roseSecondary)
-                        }
-                    }
-
-                    Toggle(isOn: $debugMode) {
-                        Label {
-                            Text("Расширенная отладка")
-                                .font(.system(size: 15))
-                        } icon: {
-                            Image(systemName: "ladybug.fill")
-                                .foregroundColor(.purple)
-                        }
                     }
                 }
                 .listRowBackground(Rectangle().fill(theme.glassMaterial))
@@ -145,10 +115,8 @@ public struct SettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Готово") {
-                        dismiss()
-                    }
-                    .foregroundColor(theme.rosePrimary)
+                    Button("Готово") { dismiss() }
+                        .foregroundColor(theme.rosePrimary)
                 }
             }
             .alert("Очистить кэш?", isPresented: $showClearCacheAlert) {
@@ -166,7 +134,6 @@ public struct SettingsView: View {
     private func authenticateWithBiometrics() {
         let context = LAContext()
         var error: NSError?
-
         if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
             context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Подтвердите вход в GeraKStore") { success, _ in
                 DispatchQueue.main.async {

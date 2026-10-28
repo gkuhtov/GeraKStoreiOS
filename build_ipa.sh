@@ -10,7 +10,6 @@ SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
 TARGET="arm64-apple-ios16.1"
 
 echo "==> Поиск исходников приложения..."
-# Исключаем файлы отдельного бандла виджета из основного исполняемого файла
 SWIFT_FILES=$(find GeraKStore -name "*.swift" ! -name "GeraKStoreWidgetsBundle.swift" ! -name "InstallActivityWidget.swift")
 
 echo "==> Компиляция Swift-исходников в бинарник Mach-O..."
@@ -23,7 +22,7 @@ xcrun --sdk iphoneos swiftc \
     -o Payload/GeraKStore.app/GeraKStore \
     $SWIFT_FILES
 
-echo "==> Создание Info.plist..."
+echo "==> Создание Info.plist с автоопределением дисплея..."
 cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -47,6 +46,8 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
     <string>1</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <key>UIRequiresFullScreen</key>
+    <true/>
     <key>MinimumOSVersion</key>
     <string>16.1</string>
     <key>UIRequiredDeviceCapabilities</key>
@@ -61,10 +62,15 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
     <string>Используется для защиты доступа к GeraKStore</string>
     <key>NSSupportsLiveActivities</key>
     <true/>
+    <key>UILaunchScreen</key>
+    <dict>
+        <key>UIColorName</key>
+        <string>black</string>
+    </dict>
 </dict>
 </plist>
 PLIST
 
 echo "==> Упаковка в GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Готово! Сформирован рабочий IPA с исполняемым файлом."
+echo "==> Готово! Сформирован универсальный IPA."
