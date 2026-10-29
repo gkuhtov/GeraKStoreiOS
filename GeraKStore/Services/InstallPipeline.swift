@@ -7,6 +7,7 @@ public final class InstallPipeline: ObservableObject {
     @Published public var activeApp: AppItem? = nil
     @Published public var progress: Float = 0.0
     @Published public var statusDescription: String = ""
+    @Published public var lastErrorMessage: String? = nil
 
     private init() {}
 
@@ -14,30 +15,25 @@ public final class InstallPipeline: ObservableObject {
         self.activeApp = app
         self.progress = 0.0
         self.statusDescription = "Загрузка..."
+        self.lastErrorMessage = nil
         
         HapticManager.shared.tap()
         BackgroundKeepAlive.shared.activate()
-        LiveActivityManager.shared.startActivity(appName: app.name, iconUrl: app.iconUrl.absoluteString)
 
-        // Этап 1: Скачивание (0.0 -> 0.5)
+        // 1. Скачивание
         DownloadManager.shared.progressHandler = { [weak self] currentProgress in
             let mappedProgress = currentProgress * 0.5
             self?.progress = mappedProgress
             self?.statusDescription = "Загрузка \(Int(currentProgress * 100))%"
-            LiveActivityManager.shared.update(
-                progress: mappedProgress,
-                status: "Загрузка архива...",
-                stage: "Загрузка"
-            )
         }
 
         DownloadManager.shared.startDownload(from: app.downloadUrl) { [weak self] downloadedUrl in
             guard let self = self, let localIpa = downloadedUrl else {
-                self?.handleFailure("Ошибка загрузки файла")
+                self?.handleFailure("Не удалось скачать IPA-файл по ссылке.")
                 return
             }
 
-            // Этап 2: Подписание (0.5 -> 0.9)
+            // 2. Подпись
             let targetBundleId = isClone ? "\(app.bundleId).clone" : app.bundleId
             let targetTitle = customName ?? app.name
 
@@ -50,11 +46,6 @@ public final class InstallPipeline: ObservableObject {
                         let totalProgress = 0.5 + (signProgress * 0.4)
                         self?.progress = totalProgress
                         self?.statusDescription = signStatus
-                        LiveActivityManager.shared.update(
-                            progress: totalProgress,
-                            status: signStatus,
-                            stage: "Подпись"
-                        )
                     }
                 },
                 completion: { [weak self] result in
@@ -62,9 +53,9 @@ public final class InstallPipeline: ObservableObject {
                     DispatchQueue.main.async {
                         switch result {
                         case .success(let signedIpaUrl):
-                            // Этап 3: Регистрация манифеста и запуск OTA
+                            // 3. Регистрация манифеста и OTA
                             self.progress = 0.95
-                            self.statusDescription = "Подготовка установки..."
+                            self.statusDescription = "Подготовка..."
 
                             _ = InstallDispatcher.shared.generateManifest(
                                 bundleId: targetBundleId,
@@ -76,17 +67,11 @@ public final class InstallPipeline: ObservableObject {
                             self.progress = 1.0
                             self.statusDescription = "Установка..."
                             HapticManager.shared.success()
-                            LiveActivityManager.shared.update(
-                                progress: 1.0,
-                                status: "Запуск установки",
-                                stage: "Установка"
-                            )
 
                             InstallDispatcher.shared.triggerInstallation(manifestEndpoint: "manifest.plist")
 
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
                                 BackgroundKeepAlive.shared.deactivate()
-                                LiveActivityManager.shared.end()
                                 StorageManager.shared.purgeTempBuilds()
                                 self.activeApp = nil
                                 self.progress = 0.0
@@ -94,7 +79,7 @@ public final class InstallPipeline: ObservableObject {
                             }
 
                         case .failure(let error):
-                            self.handleFailure(error.localizedDescription)
+                            self.handleFailure("Ошибка подписи: \(error.localizedDescription)")
                         }
                     }
                 }
@@ -103,11 +88,23 @@ public final class InstallPipeline: ObservableObject {
     }
 
     private func handleFailure(_ error: String) {
-        HapticManager.shared.error()
-        BackgroundKeepAlive.shared.deactivate()
-        LiveActivityManager.shared.end()
-        self.activeApp = nil
-        self.progress = 0.0
-        self.statusDescription = error
+        DispatchQueue.main.async {
+            HapticManager.shared.error()
+            BackgroundKeepAlive.shared.deactivate()
+            self.lastErrorMessage = error
+            self.activeApp = nil
+            self.progress = 0.0
+            self.statusDescription = ""
+            
+            // Показ нативного системного уведомления
+            if let rootVC = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap({ $0.windows })
+                .first(where: { $0.isKeyWindow })?.rootViewController {
+                let alert = UIAlertController(title: "Ошибка установки", message: error, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "Понятно", style: .default))
+                rootVC.present(alert, animated: true)
+            }
+        }
     }
 }

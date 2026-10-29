@@ -1,54 +1,68 @@
 import Foundation
 
-public final class DownloadManager: NSObject, URLSessionDownloadDelegate {
+public final class DownloadManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
     public static let shared = DownloadManager()
 
-    private var session: URLSession!
-    private var downloadTask: URLSessionDownloadTask?
-    private var completionHandler: ((URL?) -> Void)?
+    @Published public var downloadProgress: Float = 0.0
     public var progressHandler: ((Float) -> Void)?
+    private var completionHandler: ((URL?) -> Void)?
+    
+    private var downloadSession: URLSession!
 
     private override init() {
         super.init()
-        let config = URLSessionConfiguration.default
-        session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 60.0
+        configuration.timeoutIntervalForResource = 300.0
+        self.downloadSession = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
     }
 
     public func startDownload(from url: URL, completion: @escaping (URL?) -> Void) {
         self.completionHandler = completion
-        downloadTask = session.downloadTask(with: url)
-        downloadTask?.resume()
+        self.downloadProgress = 0.0
+        
+        let task = downloadSession.downloadTask(with: url)
+        task.resume()
     }
 
-    public func cancel() {
-        downloadTask?.cancel()
-        downloadTask = nil
-    }
-
-    // MARK: - URLSessionDownloadDelegate
-
-    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        let suggestedName = downloadTask.response?.suggestedFilename ?? "application.ipa"
-        let destinationDir = PathConfig.getDirectory(PathConfig.ipaDownloadsFolder)
-        let destinationUrl = destinationDir.appendingPathComponent(suggestedName)
-
-        let fileManager = FileManager.default
-        try? fileManager.removeItem(at: destinationUrl)
-
-        do {
-            try fileManager.moveItem(at: location, to: destinationUrl)
-            completionHandler?(destinationUrl)
-        } catch {
-            print("Ошибка перемещения скачанного IPA: \(error.localizedDescription)")
-            completionHandler?(nil)
+    // Обработка прогресса скачивания
+    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        if totalBytesExpectedToWrite > 0 {
+            let progress = Float(totalBytesWritten) / Float(totalBytesExpectedToWrite)
+            self.downloadProgress = progress
+            self.progressHandler?(progress)
         }
     }
 
-    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        guard totalBytesExpectedToWrite > 0 else { return }
-        let progress = Float(totalBytesWritten) / Float(totalBytesExpectedToWrite)
-        DispatchQueue.main.async { [weak self] in
-            self?.progressHandler?(progress)
+    // Успешная загрузка файла
+    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        // Проверяем HTTP статус ответа
+        if let httpResponse = downloadTask.response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
+            print("Download failed with HTTP status: \(httpResponse.statusCode)")
+            self.completionHandler?(nil)
+            return
+        }
+
+        let downloadsFolder = PathConfig.getDirectory(PathConfig.downloadsFolder)
+        let destinationUrl = downloadsFolder.appendingPathComponent(UUID().uuidString + ".ipa")
+
+        do {
+            if FileManager.default.fileExists(atPath: destinationUrl.path) {
+                try FileManager.default.removeItem(at: destinationUrl)
+            }
+            try FileManager.default.moveItem(at: location, to: destinationUrl)
+            self.completionHandler?(destinationUrl)
+        } catch {
+            print("Ошибка перемещения скачанного файла: \(error)")
+            self.completionHandler?(nil)
+        }
+    }
+
+    // Обработка ошибки загрузки
+    public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            print("Сбой загрузки URLSession: \(error.localizedDescription)")
+            self.completionHandler?(nil)
         }
     }
 }
