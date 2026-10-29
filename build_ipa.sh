@@ -22,7 +22,7 @@ xcrun --sdk iphoneos swiftc \
     -o Payload/GeraKStore.app/GeraKStore \
     $SWIFT_FILES
 
-echo "==> Создание Info.plist с ATS и полноэкранным режимом..."
+echo "==> Создание Info.plist с поддержкой Background Modes..."
 cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -64,6 +64,11 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
     <string>Используется для локальной установки подписанных приложений через OTA сервис</string>
     <key>NSSupportsLiveActivities</key>
     <true/>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+        <string>processing</string>
+    </array>
     <key>UILaunchScreen</key>
     <dict>
         <key>UIColorName</key>
@@ -82,4 +87,4 @@ PLIST
 
 echo "==> Упаковка в GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Сборка завершена!"
+echo "==> Готово! Сформирован IPA с поддержкой фоновых служб."
