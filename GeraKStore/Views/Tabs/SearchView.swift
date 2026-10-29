@@ -3,6 +3,7 @@ import SwiftUI
 public struct SearchView: View {
     @ObservedObject var catalog = CatalogService.shared
     @ObservedObject var theme = ThemeConfig.shared
+    @ObservedObject var pipeline = InstallPipeline.shared
     @State private var searchText: String = ""
 
     public init() {}
@@ -45,7 +46,58 @@ public struct SearchView: View {
                     ScrollView {
                         LazyVStack(spacing: 12) {
                             ForEach(searchResults) { app in
-                                AppRowView(app: app)
+                                HStack(spacing: 12) {
+                                    AsyncImage(url: app.iconUrl) { phase in
+                                        switch phase {
+                                        case .success(let image):
+                                            image.resizable().scaledToFill()
+                                        default:
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .fill(Color.gray.opacity(0.3))
+                                        }
+                                    }
+                                    .frame(width: 52, height: 52)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(app.name)
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundColor(.white)
+                                            .lineLimit(1)
+
+                                        HStack(spacing: 6) {
+                                            Text(app.subcategory)
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.secondary)
+
+                                            if app.isModded {
+                                                Text("мод")
+                                                    .font(.system(size: 10, weight: .bold))
+                                                    .foregroundColor(.pink)
+                                                    .padding(.horizontal, 4)
+                                                    .padding(.vertical, 1)
+                                                    .background(Color.pink.opacity(0.15))
+                                                    .cornerRadius(4)
+                                            }
+                                        }
+                                    }
+
+                                    Spacer()
+
+                                    Button(action: {
+                                        pipeline.execute(app: app)
+                                    }) {
+                                        Text(pipeline.activeApp?.id == app.id ? pipeline.statusDescription : "ЗАГРУЗИТЬ")
+                                            .font(.system(size: 12, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 7)
+                                            .background(theme.buttonGradient)
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                                .padding(12)
+                                .background(RoundedRectangle(cornerRadius: 16).fill(theme.glassMaterial))
                             }
                         }
                         .padding(.horizontal, 16)
