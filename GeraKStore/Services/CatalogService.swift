@@ -6,7 +6,7 @@ public final class CatalogService: ObservableObject {
 
     @Published public var apps: [AppItem] = []
     @Published public var isLoading: Bool = false
-    @Published public var errorMessage: String? = nil
+    @Published public var lastStatus: String = "Ожидание загрузки..."
 
     public var allApps: [AppItem] { apps }
 
@@ -17,33 +17,47 @@ public final class CatalogService: ObservableObject {
     }
 
     public func loadCatalog() {
-        self.isLoading = true
-        self.errorMessage = nil
+        DispatchQueue.main.async {
+            self.isLoading = true
+            self.lastStatus = "Загрузка каталога..."
+        }
 
         var request = URLRequest(url: repoUrl)
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.timeoutInterval = 15.0
+        request.timeoutInterval = 10.0
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
-                self?.isLoading = false
+                guard let self = self else { return }
+                self.isLoading = false
 
                 if let error = error {
-                    print("Ошибка запроса каталога: \(error.localizedDescription)")
+                    self.lastStatus = "Ошибка сети: \(error.localizedDescription)"
+                    print(self.lastStatus)
                     return
                 }
 
-                guard let data = data else {
-                    print("Пустой ответ от сервера")
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    self.lastStatus = "Нет ответа от сервера"
                     return
                 }
 
-                // Парсим JSON через гибкий словарь без строгого Decodable
-                if let parsedApps = self?.parseDynamicJson(data: data), !parsedApps.isEmpty {
-                    self?.apps = parsedApps
-                    print("Успешно распарсено приложений: \(parsedApps.count)")
+                guard httpResponse.statusCode == 200 else {
+                    self.lastStatus = "Ошибка HTTP: \(httpResponse.statusCode)"
+                    return
+                }
+
+                guard let data = data, !data.isEmpty else {
+                    self.lastStatus = "repo.json пуст"
+                    return
+                }
+
+                if let parsed = self.parseDynamicJson(data: data), !parsed.isEmpty {
+                    self.apps = parsed
+                    self.lastStatus = "Загружено: \(parsed.count) прил."
+                    print("Успех: загружено \(parsed.count) приложений")
                 } else {
-                    print("Не удалось извлечь приложения из repo.json")
+                    self.lastStatus = "Не удалось распознать формат JSON"
                 }
             }
         }.resume()
@@ -57,7 +71,6 @@ public final class CatalogService: ObservableObject {
         var rawList: [[String: Any]] = []
 
         if let dict = jsonObject as? [String: Any] {
-            // Проверяем распространенные ключи GBox/ESign репозиториев
             if let appsArray = dict["apps"] as? [[String: Any]] {
                 rawList = appsArray
             } else if let itemsArray = dict["items"] as? [[String: Any]] {
@@ -76,17 +89,14 @@ public final class CatalogService: ObservableObject {
 
             let bundleId = item["bundleIdentifier"] as? String ?? item["bundleId"] as? String ?? UUID().uuidString
             let version = "\(item["version"] ?? "1.0.0")"
-            let desc = item["description"] as? String ?? "Приложение из каталога GeraKStore."
+            let desc = item["description"] as? String ?? "Приложение из личного репозитория GeraKStore."
 
-            // Определение ссылки на загрузку
             let downStr = item["down"] as? String ?? item["downloadUrl"] as? String ?? item["url"] as? String ?? ""
             guard let downloadUrl = URL(string: downStr) else { return nil }
 
-            // Определение иконки
             let iconStr = item["icon"] as? String ?? item["iconUrl"] as? String ?? "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icon.png"
             let iconUrl = URL(string: iconStr) ?? URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icon.png")!
 
-            // Определение размера
             var sizeStr = "IPA"
             if let sizeBytes = item["size"] as? Int64 {
                 sizeStr = String(format: "%.1f МБ", Double(sizeBytes) / 1024.0 / 1024.0)
@@ -96,7 +106,6 @@ public final class CatalogService: ObservableObject {
                 sizeStr = sizeText
             }
 
-            // Определение типа и категории
             let categoryRaw = (item["category"] as? String ?? "").lowercased()
             let nameRaw = name.lowercased()
             let isGame = categoryRaw.contains("game") || categoryRaw.contains("игр") || nameRaw.contains("game")
