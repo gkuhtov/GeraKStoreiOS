@@ -4,8 +4,14 @@ public struct PathConfig {
     public static let certificatesFolder = "Certificates"
     public static let tempBuildFolder = "TempBuilds"
     public static let tempCacheFolder = "TempCache"
-    public static let signedAppsFolder = "SignedApps"
+    
+    // Поддержка имен папок загрузок
     public static let downloadsFolder = "Downloads"
+    public static let ipaDownloadsFolder = "Downloads"
+    
+    // Поддержка имен папок подписанных пакетов
+    public static let signedAppsFolder = "SignedApps"
+    public static let signedOutputFolder = "SignedApps"
 
     public static func getDirectory(_ folderName: String) -> URL {
         let fileManager = FileManager.default
