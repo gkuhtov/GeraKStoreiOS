@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 public struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
@@ -9,8 +10,8 @@ public struct SettingsView: View {
     @State private var hasP12: Bool = false
     @State private var hasMobileProvision: Bool = false
     
-    @State private var isImportingP12: Bool = false
-    @State private var isImportingProvision: Bool = false
+    @State private var showingPickerForP12 = false
+    @State private var showingPickerForProvision = false
     @State private var alertMessage: String = ""
     @State private var showAlert: Bool = false
 
@@ -44,10 +45,10 @@ public struct SettingsView: View {
                                     .foregroundColor((hasP12 && hasMobileProvision) ? .pink : .orange)
 
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text((hasP12 && hasMobileProvision) ? "Сертификат установлен" : "Сертификат не настроен")
+                                    Text((hasP12 && hasMobileProvision) ? "Сертификат готов" : "Сертификат не настроен")
                                         .font(.system(size: 16, weight: .bold))
                                         .foregroundColor(.white)
-                                    Text((hasP12 && hasMobileProvision) ? "Локальная подпись готова к работе" : "Требуются файлы .p12 и .mobileprovision")
+                                    Text((hasP12 && hasMobileProvision) ? "Локальная подпись активна" : "Требуются файлы .p12 и .mobileprovision")
                                         .font(.system(size: 12))
                                         .foregroundColor(.secondary)
                                 }
@@ -64,8 +65,8 @@ public struct SettingsView: View {
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundColor(.secondary)
 
-                            // Кнопка импорта .p12
-                            Button(action: { isImportingP12 = true }) {
+                            // Выбор .p12
+                            Button(action: { showingPickerForP12 = true }) {
                                 HStack {
                                     Image(systemName: "key.fill")
                                         .foregroundColor(.pink)
@@ -74,21 +75,21 @@ public struct SettingsView: View {
                                         Text("Сертификат (.p12)")
                                             .font(.system(size: 15, weight: .semibold))
                                             .foregroundColor(.white)
-                                        Text(hasP12 ? "Импортирован (cert.p12)" : "Нажмите для выбора файла")
+                                        Text(hasP12 ? "Файл сохранен (cert.p12)" : "Нажмите, чтобы выбрать из Файлов")
                                             .font(.system(size: 12))
                                             .foregroundColor(hasP12 ? .green : .secondary)
                                     }
                                     Spacer()
-                                    Image(systemName: hasP12 ? "checkmark.circle.fill" : "arrow.up.doc")
-                                        .foregroundColor(hasP12 ? .green : .secondary)
+                                    Image(systemName: hasP12 ? "checkmark.circle.fill" : "folder.badge.plus")
+                                        .foregroundColor(hasP12 ? .green : .pink)
                                 }
                                 .padding(14)
                                 .background(RoundedRectangle(cornerRadius: 14).fill(theme.glassMaterial))
                             }
                             .buttonStyle(.plain)
 
-                            // Кнопка импорта .mobileprovision
-                            Button(action: { isImportingProvision = true }) {
+                            // Выбор .mobileprovision
+                            Button(action: { showingPickerForProvision = true }) {
                                 HStack {
                                     Image(systemName: "doc.badge.gearshape.fill")
                                         .foregroundColor(.pink)
@@ -97,13 +98,13 @@ public struct SettingsView: View {
                                         Text("Профиль (.mobileprovision)")
                                             .font(.system(size: 15, weight: .semibold))
                                             .foregroundColor(.white)
-                                        Text(hasMobileProvision ? "Импортирован (embedded.mobileprovision)" : "Нажмите для выбора файла")
+                                        Text(hasMobileProvision ? "Файл сохранен (embedded.mobileprovision)" : "Нажмите, чтобы выбрать из Файлов")
                                             .font(.system(size: 12))
                                             .foregroundColor(hasMobileProvision ? .green : .secondary)
                                     }
                                     Spacer()
-                                    Image(systemName: hasMobileProvision ? "checkmark.circle.fill" : "arrow.up.doc")
-                                        .foregroundColor(hasMobileProvision ? .green : .secondary)
+                                    Image(systemName: hasMobileProvision ? "checkmark.circle.fill" : "folder.badge.plus")
+                                        .foregroundColor(hasMobileProvision ? .green : .pink)
                                 }
                                 .padding(14)
                                 .background(RoundedRectangle(cornerRadius: 14).fill(theme.glassMaterial))
@@ -118,7 +119,7 @@ public struct SettingsView: View {
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundColor(.secondary)
 
-                            SecureField("Введите пароль от .p12 (если есть)", text: $certPassword)
+                            SecureField("Пароль к p12 (оставьте пустым, если нет)", text: $certPassword)
                                 .textInputAutocapitalization(.never)
                                 .disableAutocorrection(true)
                                 .padding(14)
@@ -127,13 +128,13 @@ public struct SettingsView: View {
                         }
                         .padding(.horizontal, 16)
 
-                        // Кнопка сброса сертификатов
+                        // Очистка
                         if hasP12 || hasMobileProvision {
                             Button(role: .destructive, action: deleteCertificates) {
                                 HStack {
                                     Spacer()
                                     Image(systemName: "trash")
-                                    Text("Удалить установленный сертификат")
+                                    Text("Удалить сохраненные файлы")
                                     Spacer()
                                 }
                                 .font(.system(size: 14, weight: .semibold))
@@ -148,30 +149,32 @@ public struct SettingsView: View {
                     .padding(.vertical, 16)
                 }
             }
-            .navigationTitle("Настройки сертификата")
+            .navigationTitle("Настройки")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Готово") {
-                        dismiss()
-                    }
-                    .foregroundColor(.pink)
+                    Button("Готово") { dismiss() }
+                        .foregroundColor(.pink)
                 }
             }
             .onAppear(perform: checkCertFiles)
-            .fileImporter(
-                isPresented: $isImportingP12,
-                allowedContentTypes: [.data, .item],
-                allowsMultipleSelection: false
-            ) { result in
-                handleImport(result: result, targetName: "cert.p12")
+            .sheet(isPresented: $showingPickerForP12) {
+                SystemDocumentPicker(targetFileName: "cert.p12") { success in
+                    checkCertFiles()
+                    if success {
+                        alertMessage = "Сертификат .p12 успешно сохранен!"
+                        showAlert = true
+                    }
+                }
             }
-            .fileImporter(
-                isPresented: $isImportingProvision,
-                allowedContentTypes: [.data, .item],
-                allowsMultipleSelection: false
-            ) { result in
-                handleImport(result: result, targetName: "embedded.mobileprovision")
+            .sheet(isPresented: $showingPickerForProvision) {
+                SystemDocumentPicker(targetFileName: "embedded.mobileprovision") { success in
+                    checkCertFiles()
+                    if success {
+                        alertMessage = "Профиль .mobileprovision успешно сохранен!"
+                        showAlert = true
+                    }
+                }
             }
             .alert("Сертификаты", isPresented: $showAlert) {
                 Button("Ок", role: .cancel) {}
@@ -181,43 +184,66 @@ public struct SettingsView: View {
         }
     }
 
-    private func handleImport(result: Result<[URL], Error>, targetName: String) {
-        do {
-            guard let selectedUrl = try result.get().first else { return }
-            
-            if selectedUrl.startAccessingSecurityScopedResource() {
-                defer { selectedUrl.stopAccessingSecurityScopedResource() }
-                
-                let certsDir = PathConfig.getDirectory(PathConfig.certificatesFolder)
-                let destinationUrl = certsDir.appendingPathComponent(targetName)
-
-                if FileManager.default.fileExists(atPath: destinationUrl.path) {
-                    try FileManager.default.removeItem(at: destinationUrl)
-                }
-                
-                try FileManager.default.copyItem(at: selectedUrl, to: destinationUrl)
-                checkCertFiles()
-                
-                alertMessage = "Файл \(targetName) успешно импортирован!"
-                showAlert = true
-            }
-        } catch {
-            alertMessage = "Ошибка при сохранении файла: \(error.localizedDescription)"
-            showAlert = true
-        }
-    }
-
     private func deleteCertificates() {
         let certsDir = PathConfig.getDirectory(PathConfig.certificatesFolder)
-        let p12Url = certsDir.appendingPathComponent("cert.p12")
-        let provUrl = certsDir.appendingPathComponent("embedded.mobileprovision")
-
-        try? FileManager.default.removeItem(at: p12Url)
-        try? FileManager.default.removeItem(at: provUrl)
+        try? FileManager.default.removeItem(at: certsDir.appendingPathComponent("cert.p12"))
+        try? FileManager.default.removeItem(at: certsDir.appendingPathComponent("embedded.mobileprovision"))
         certPassword = ""
         checkCertFiles()
-        
-        alertMessage = "Сертификаты и профиль успешно удалены."
+        alertMessage = "Сертификаты удалены."
         showAlert = true
+    }
+}
+
+// Универсальный системный пикер для любых типов файлов
+struct SystemDocumentPicker: UIViewControllerRepresentable {
+    let targetFileName: String
+    let onComplete: (Bool) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        // Разрешаем открытие любых бинарных типов файлов
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item, .data, .content], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let parent: SystemDocumentPicker
+
+        init(_ parent: SystemDocumentPicker) {
+            self.parent = parent
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let pickedUrl = urls.first else {
+                parent.onComplete(false)
+                return
+            }
+
+            let certsDir = PathConfig.getDirectory(PathConfig.certificatesFolder)
+            let destination = certsDir.appendingPathComponent(parent.targetFileName)
+
+            do {
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    try FileManager.default.removeItem(at: destination)
+                }
+                try FileManager.default.copyItem(at: pickedUrl, to: destination)
+                parent.onComplete(true)
+            } catch {
+                print("Ошибка копирования файла: \(error)")
+                parent.onComplete(false)
+            }
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.onComplete(false)
+        }
     }
 }
