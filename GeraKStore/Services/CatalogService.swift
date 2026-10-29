@@ -10,7 +10,9 @@ public final class CatalogService: ObservableObject {
 
     public var allApps: [AppItem] { apps }
 
-    private let repoUrl = URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/repo.json")!
+    // Используем GitHub Pages — отдается мгновенно без блокировок
+    private let repoUrl = URL(string: "https://gkuhtov.github.io/GeraKStore/repo.json")!
+    private let fallbackUrl = URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/repo.json")!
 
     private init() {
         loadCatalog()
@@ -22,142 +24,110 @@ public final class CatalogService: ObservableObject {
             self.lastStatus = "Загрузка каталога..."
         }
 
-        var request = URLRequest(url: repoUrl)
+        fetchRepo(url: repoUrl) { [weak self] success in
+            if !success {
+                // Если Pages не ответил, пробуем fallback
+                self?.fetchRepo(url: self?.fallbackUrl ?? self!.repoUrl) { _ in }
+            }
+        }
+    }
+
+    private func fetchRepo(url: URL, completion: @escaping (Bool) -> Void) {
+        var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.timeoutInterval = 15.0
+        request.timeoutInterval = 10.0
 
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
-                guard let self = self else { return }
-                self.isLoading = false
+                guard let self = self else {
+                    completion(false)
+                    return
+                }
 
                 if let error = error {
                     self.lastStatus = "Ошибка сети: \(error.localizedDescription)"
+                    self.isLoading = false
+                    completion(false)
                     return
                 }
 
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    self.lastStatus = "Нет ответа от сервера"
+                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200,
+                      let data = data, !data.isEmpty else {
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    self.lastStatus = "Ответ сервера: HTTP \(code)"
+                    self.isLoading = false
+                    completion(false)
                     return
                 }
 
-                guard httpResponse.statusCode == 200 else {
-                    self.lastStatus = "HTTP: \(httpResponse.statusCode)"
-                    return
-                }
-
-                guard let data = data, !data.isEmpty else {
-                    self.lastStatus = "repo.json пуст"
-                    return
-                }
-
-                if let parsed = self.extractFromAppRepositories(data: data), !parsed.isEmpty {
+                if let parsed = self.parseGeraKStoreRepo(data: data), !parsed.isEmpty {
                     self.apps = parsed
                     self.lastStatus = "Загружено: \(parsed.count) прил."
+                    self.isLoading = false
+                    completion(true)
                 } else {
-                    self.lastStatus = "В appRepositories нет приложений или ссылок"
+                    self.lastStatus = "Не удалось извлечь приложения из appRepositories"
+                    self.isLoading = false
+                    completion(false)
                 }
             }
         }.resume()
     }
 
-    private func extractFromAppRepositories(data: Data) -> [AppItem]? {
-        guard let jsonObject = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any] else {
+    private func parseGeraKStoreRepo(data: Data) -> [AppItem]? {
+        guard let json = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any] else {
             return nil
         }
 
-        var rawCards: [[String: Any]] = []
-
-        // 1. Извлекаем массив appRepositories
-        if let repositories = jsonObject["appRepositories"] as? [[String: Any]] {
-            for repo in repositories {
-                // Если внутри каждого репозитория есть массив apps/items
-                if let nestedApps = repo["apps"] as? [[String: Any]] {
-                    rawCards.append(contentsOf: nestedApps)
-                } else if let nestedItems = repo["items"] as? [[String: Any]] {
-                    rawCards.append(contentsOf: nestedItems)
-                } else {
-                    // Либо элементы appRepositories и есть сами приложения
-                    rawCards.append(repo)
-                }
-            }
+        guard let repositories = json["appRepositories"] as? [[String: Any]], !repositories.isEmpty else {
+            return nil
         }
-
-        // Если пусто, проверяем другие ключи
-        if rawCards.isEmpty {
-            for key in ["apps", "items", "appCategories"] {
-                if let arr = jsonObject[key] as? [[String: Any]] {
-                    rawCards.append(contentsOf: arr)
-                }
-            }
-        }
-
-        guard !rawCards.isEmpty else { return nil }
 
         var result: [AppItem] = []
 
-        for item in rawCards {
+        for item in repositories {
             // Название приложения
-            let name = item["name"] as? String ?? item["title"] as? String ?? item["appName"] as? String
+            let name = item["appName"] as? String ?? item["name"] as? String
             guard let validName = name, !validName.isEmpty else { continue }
 
             // Bundle ID
-            let bundleId = item["bundleIdentifier"] as? String
-                ?? item["bundleId"] as? String
-                ?? item["bundleID"] as? String
-                ?? item["package"] as? String
-                ?? UUID().uuidString
+            let bundleId = item["bundleIdentifier"] as? String ?? item["bundleId"] as? String ?? UUID().uuidString
 
-            let version = "\(item["version"] ?? item["appVersion"] ?? item["versionName"] ?? "1.0.0")"
+            // Версия
+            let version = "\(item["appVersion"] ?? item["version"] ?? "1.0.0")"
 
-            // Ссылка на скачивание
-            var downloadUrlStr = item["down"] as? String
-                ?? item["downloadUrl"] as? String
-                ?? item["url"] as? String
-                ?? item["link"] as? String
-                ?? item["download"] as? String
+            // Ссылка на IPA: в твоем файле лежит в appPackage!
+            let downloadStr = item["appPackage"] as? String 
+                ?? item["down"] as? String 
+                ?? item["downloadUrl"] as? String 
+                ?? item["url"] as? String 
                 ?? ""
 
-            // Если ссылка лежит во вложенном массиве версий
-            if downloadUrlStr.isEmpty, let versions = item["versions"] as? [[String: Any]], let first = versions.first {
-                downloadUrlStr = first["down"] as? String ?? first["url"] as? String ?? first["link"] as? String ?? ""
-            }
+            guard let downloadUrl = URL(string: downloadStr.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  !downloadStr.isEmpty else { continue }
 
-            guard let dlUrl = URL(string: downloadUrlStr.trimmingCharacters(in: .whitespacesAndNewlines)),
-                  !downloadUrlStr.isEmpty else {
-                continue
-            }
+            // Ссылка на иконку: в твоем файле appImage или iconURL
+            let iconStr = item["appImage"] as? String 
+                ?? item["iconURL"] as? String 
+                ?? item["icon"] as? String 
+                ?? "https://gkuhtov.github.io/GeraKStore/icons/app_icon.png"
 
-            // Иконка
-            let iconStr = item["icon"] as? String
-                ?? item["iconUrl"] as? String
-                ?? item["artwork"] as? String
-                ?? "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icon.png"
             let iconUrl = URL(string: iconStr.trimmingCharacters(in: .whitespacesAndNewlines))
-                ?? URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icon.png")!
+                ?? URL(string: "https://gkuhtov.github.io/GeraKStore/icons/app_icon.png")!
 
-            let desc = item["description"] as? String
-                ?? item["desc"] as? String
+            // Описание
+            let desc = item["appDescription"] as? String 
+                ?? item["description"] as? String 
+                ?? item["subtitle"] as? String 
                 ?? "Приложение из каталога GeraKStore."
 
-            // Размер
-            var sizeStr = "IPA"
-            if let bytes = item["size"] as? Int64 {
-                sizeStr = String(format: "%.1f МБ", Double(bytes) / (1024.0 * 1024.0))
-            } else if let bytesInt = item["size"] as? Int {
-                sizeStr = String(format: "%.1f МБ", Double(bytesInt) / (1024.0 * 1024.0))
-            } else if let str = item["size"] as? String {
-                sizeStr = str
-            }
-
-            let cat = (item["category"] as? String ?? item["type"] as? String ?? "").lowercased()
-            let n = validName.lowercased()
-            let isGame = cat.contains("game") || cat.contains("игр") || n.contains("game")
+            // Категория
+            let rawCat = item["category"] as? String ?? "Приложения"
+            let catLower = rawCat.lowercased()
+            let isGame = catLower.contains("игры") || catLower.contains("game")
             let category = isGame ? "games" : "apps"
-            let subcategory = item["category"] as? String ?? (isGame ? "Игры" : "Приложения")
 
-            let typeInt = item["type"] as? Int ?? 0
-            let isModded = (typeInt == 1) || n.contains("mod") || n.contains("твик")
+            let isModded = (item["appType"] as? String == "TWEAK") || (item["type"] as? Int == 1)
 
             result.append(AppItem(
                 id: bundleId,
@@ -165,12 +135,12 @@ public final class CatalogService: ObservableObject {
                 bundleId: bundleId,
                 version: version,
                 minOSVersion: "15.0",
-                size: sizeStr,
+                size: "IPA",
                 category: category,
-                subcategory: subcategory,
+                subcategory: rawCat,
                 description: desc,
                 iconUrl: iconUrl,
-                downloadUrl: dlUrl,
+                downloadUrl: downloadUrl,
                 isModded: isModded
             ))
         }
