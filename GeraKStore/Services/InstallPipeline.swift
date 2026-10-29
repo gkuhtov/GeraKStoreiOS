@@ -3,7 +3,7 @@ import UIKit
 
 public final class InstallPipeline: ObservableObject {
     public static let shared = InstallPipeline()
-    
+
     @Published public var activeApp: AppItem? = nil
     @Published public var progress: Float = 0.0
     @Published public var statusDescription: String = ""
@@ -16,24 +16,24 @@ public final class InstallPipeline: ObservableObject {
         self.progress = 0.0
         self.statusDescription = "Загрузка..."
         self.lastErrorMessage = nil
-        
+
         HapticManager.shared.tap()
         BackgroundKeepAlive.shared.activate()
 
-        // 1. Скачивание
+        // 1. Скачивание IPA
         DownloadManager.shared.progressHandler = { [weak self] currentProgress in
-            let mappedProgress = currentProgress * 0.5
+            let mappedProgress = currentProgress * 0.4
             self?.progress = mappedProgress
             self?.statusDescription = "Загрузка \(Int(currentProgress * 100))%"
         }
 
         DownloadManager.shared.startDownload(from: app.downloadUrl) { [weak self] downloadedUrl in
             guard let self = self, let localIpa = downloadedUrl else {
-                self?.handleFailure("Не удалось скачать IPA-файл по ссылке.")
+                self?.handleFailure("Не удалось скачать IPA-файл.")
                 return
             }
 
-            // 2. Подпись
+            // 2. Локальная переподпись zsign
             let targetBundleId = isClone ? "\(app.bundleId).clone" : app.bundleId
             let targetTitle = customName ?? app.name
 
@@ -43,7 +43,7 @@ public final class InstallPipeline: ObservableObject {
                 customDisplayName: targetTitle,
                 progress: { [weak self] signProgress, signStatus in
                     DispatchQueue.main.async {
-                        let totalProgress = 0.5 + (signProgress * 0.4)
+                        let totalProgress = 0.4 + (signProgress * 0.5)
                         self?.progress = totalProgress
                         self?.statusDescription = signStatus
                     }
@@ -53,9 +53,9 @@ public final class InstallPipeline: ObservableObject {
                     DispatchQueue.main.async {
                         switch result {
                         case .success(let signedIpaUrl):
-                            // 3. Регистрация манифеста и OTA
+                            // 3. Генерация манифеста и запуск установки
                             self.progress = 0.95
-                            self.statusDescription = "Подготовка..."
+                            self.statusDescription = "Установка..."
 
                             _ = InstallDispatcher.shared.generateManifest(
                                 bundleId: targetBundleId,
@@ -65,10 +65,9 @@ public final class InstallPipeline: ObservableObject {
                             )
 
                             self.progress = 1.0
-                            self.statusDescription = "Установка..."
                             HapticManager.shared.success()
 
-                            InstallDispatcher.shared.triggerInstallation(manifestEndpoint: "manifest.plist")
+                            InstallDispatcher.shared.triggerInstallation()
 
                             DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
                                 BackgroundKeepAlive.shared.deactivate()
@@ -79,7 +78,7 @@ public final class InstallPipeline: ObservableObject {
                             }
 
                         case .failure(let error):
-                            self.handleFailure("Ошибка подписи: \(error.localizedDescription)")
+                            self.handleFailure(error.localizedDescription)
                         }
                     }
                 }
@@ -95,13 +94,11 @@ public final class InstallPipeline: ObservableObject {
             self.activeApp = nil
             self.progress = 0.0
             self.statusDescription = ""
-            
-            // Показ нативного системного уведомления
-            if let rootVC = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .flatMap({ $0.windows })
-                .first(where: { $0.isKeyWindow })?.rootViewController {
-                let alert = UIAlertController(title: "Ошибка установки", message: error, preferredStyle: .alert)
+
+            if let windowScene = UIApplication.shared.connectedScenes
+                .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+               let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                let alert = UIAlertController(title: "Ошибка", message: error, preferredStyle: .alert)
                 alert.addAction(UIAlertAction(title: "Понятно", style: .default))
                 rootVC.present(alert, animated: true)
             }

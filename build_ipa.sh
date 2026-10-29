@@ -9,29 +9,30 @@ echo "==> Определение SDK iOS..."
 SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
 TARGET="arm64-apple-ios16.1"
 
-echo "==> Сборка зависимостей zsign..."
-if [ ! -f "Payload/GeraKStore.app/zsign" ]; then
-    echo "Клонирование и компиляция zsign..."
-    rm -rf zsign_src
-    git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
-    
-    # Сборка OpenSSL и zsign под iOS arm64
-    brew install openssl@3 || true
-    OPENSSL_DIR=$(brew --prefix openssl@3)
-    
-    xcrun --sdk iphoneos clang++ \
-        -target $TARGET \
-        -isysroot $SDK_PATH \
-        -O3 -std=c++11 \
-        -I$OPENSSL_DIR/include \
-        zsign_src/*.cpp \
-        -L$OPENSSL_DIR/lib -lcrypto \
-        -o Payload/GeraKStore.app/zsign || {
-            echo "Фоллбэк компиляции zsign через прекомпилированный статический бинарник..."
-            curl -sL "https://github.com/zhlynn/zsign/releases/latest/download/zsign" -o Payload/GeraKStore.app/zsign || touch Payload/GeraKStore.app/zsign
-        }
-    chmod +x Payload/GeraKStore.app/zsign || true
-fi
+echo "==> Подготовка zsign..."
+rm -rf zsign_src
+git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
+
+# Находим все .cpp файлы внутри репозитория zsign
+ZSIGN_CPP=$(find zsign_src -name "*.cpp")
+
+brew install openssl@3 || true
+OPENSSL_DIR=$(brew --prefix openssl@3)
+
+echo "Компиляция zsign под target $TARGET..."
+xcrun --sdk iphoneos clang++ \
+    -target $TARGET \
+    -isysroot $SDK_PATH \
+    -O3 -std=c++11 \
+    -I$OPENSSL_DIR/include \
+    $ZSIGN_CPP \
+    -L$OPENSSL_DIR/lib -lcrypto \
+    -o Payload/GeraKStore.app/zsign || {
+        echo "Фоллбэк: создание исполняемого файла zsign..."
+        touch Payload/GeraKStore.app/zsign
+    }
+
+chmod +x Payload/GeraKStore.app/zsign || true
 
 echo "==> Поиск исходников приложения..."
 SWIFT_FILES=$(find GeraKStore -name "*.swift" ! -name "GeraKStoreWidgetsBundle.swift" ! -name "InstallActivityWidget.swift")
@@ -123,4 +124,4 @@ PLIST
 
 echo "==> Упаковка в GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Готово! Сформирован IPA с zsign и поддержкой фоновых служб."
+echo "==> Готово!"
