@@ -37,7 +37,7 @@ public final class CatalogService: ObservableObject {
                 }
 
                 guard let httpResponse = response as? HTTPURLResponse else {
-                    self.lastStatus = "Нет ответа"
+                    self.lastStatus = "Нет ответа от сервера"
                     return
                 }
 
@@ -51,53 +51,52 @@ public final class CatalogService: ObservableObject {
                     return
                 }
 
-                if let parsed = self.extractApps(from: data), !parsed.isEmpty {
+                if let parsed = self.extractFromAppRepositories(data: data), !parsed.isEmpty {
                     self.apps = parsed
                     self.lastStatus = "Загружено: \(parsed.count) прил."
                 } else {
-                    if let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
-                        let keys = dict.keys.joined(separator: ", ")
-                        self.lastStatus = "Ключи в JSON: [\(keys)]"
-                    } else {
-                        self.lastStatus = "Невалидный JSON"
-                    }
+                    self.lastStatus = "В appRepositories нет приложений или ссылок"
                 }
             }
         }.resume()
     }
 
-    private func extractApps(from data: Data) -> [AppItem]? {
-        guard let jsonObject = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+    private func extractFromAppRepositories(data: Data) -> [AppItem]? {
+        guard let jsonObject = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any] else {
             return nil
         }
 
-        var candidateDicts: [[String: Any]] = []
+        var rawCards: [[String: Any]] = []
 
-        if let dict = jsonObject as? [String: Any] {
-            // Проверяем прямое наличие массива в корне
-            for key in ["apps", "app", "items", "sourceList", "list"] {
-                if let arr = dict[key] as? [[String: Any]] {
-                    candidateDicts.append(contentsOf: arr)
+        // 1. Извлекаем массив appRepositories
+        if let repositories = jsonObject["appRepositories"] as? [[String: Any]] {
+            for repo in repositories {
+                // Если внутри каждого репозитория есть массив apps/items
+                if let nestedApps = repo["apps"] as? [[String: Any]] {
+                    rawCards.append(contentsOf: nestedApps)
+                } else if let nestedItems = repo["items"] as? [[String: Any]] {
+                    rawCards.append(contentsOf: nestedItems)
+                } else {
+                    // Либо элементы appRepositories и есть сами приложения
+                    rawCards.append(repo)
                 }
             }
-            
-            // Если ничего не найдено, проходим по всем вложенным массивам
-            if candidateDicts.isEmpty {
-                for (_, value) in dict {
-                    if let nested = value as? [[String: Any]] {
-                        candidateDicts.append(contentsOf: nested)
-                    }
-                }
-            }
-        } else if let arr = jsonObject as? [[String: Any]] {
-            candidateDicts = arr
         }
 
-        guard !candidateDicts.isEmpty else { return nil }
+        // Если пусто, проверяем другие ключи
+        if rawCards.isEmpty {
+            for key in ["apps", "items", "appCategories"] {
+                if let arr = jsonObject[key] as? [[String: Any]] {
+                    rawCards.append(contentsOf: arr)
+                }
+            }
+        }
+
+        guard !rawCards.isEmpty else { return nil }
 
         var result: [AppItem] = []
 
-        for item in candidateDicts {
+        for item in rawCards {
             // Название приложения
             let name = item["name"] as? String ?? item["title"] as? String ?? item["appName"] as? String
             guard let validName = name, !validName.isEmpty else { continue }
@@ -119,7 +118,7 @@ public final class CatalogService: ObservableObject {
                 ?? item["download"] as? String
                 ?? ""
 
-            // Вложенные версии (ESign)
+            // Если ссылка лежит во вложенном массиве версий
             if downloadUrlStr.isEmpty, let versions = item["versions"] as? [[String: Any]], let first = versions.first {
                 downloadUrlStr = first["down"] as? String ?? first["url"] as? String ?? first["link"] as? String ?? ""
             }
@@ -139,8 +138,9 @@ public final class CatalogService: ObservableObject {
 
             let desc = item["description"] as? String
                 ?? item["desc"] as? String
-                ?? "Приложение из личного репозитория GeraKStore."
+                ?? "Приложение из каталога GeraKStore."
 
+            // Размер
             var sizeStr = "IPA"
             if let bytes = item["size"] as? Int64 {
                 sizeStr = String(format: "%.1f МБ", Double(bytes) / (1024.0 * 1024.0))
