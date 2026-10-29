@@ -8,6 +8,11 @@ public final class CatalogService: ObservableObject {
     @Published public var isLoading: Bool = false
     @Published public var errorMessage: String? = nil
 
+    // Псевдоним для совместимости с SearchView и другими компонентами
+    public var allApps: [AppItem] {
+        return apps
+    }
+
     private let catalogUrl = URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStoreiOS/main/apps.json")!
 
     private init() {
