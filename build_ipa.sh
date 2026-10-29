@@ -22,7 +22,7 @@ xcrun --sdk iphoneos swiftc \
     -o Payload/GeraKStore.app/GeraKStore \
     $SWIFT_FILES
 
-echo "==> Создание Info.plist с автоопределением дисплея..."
+echo "==> Создание Info.plist с ATS и полноэкранным режимом..."
 cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -60,6 +60,8 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
     </array>
     <key>NSFaceIDUsageDescription</key>
     <string>Используется для защиты доступа к GeraKStore</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Используется для локальной установки подписанных приложений через OTA сервис</string>
     <key>NSSupportsLiveActivities</key>
     <true/>
     <key>UILaunchScreen</key>
@@ -67,10 +69,17 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
         <key>UIColorName</key>
         <string>black</string>
     </dict>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
 </dict>
 </plist>
 PLIST
 
 echo "==> Упаковка в GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Готово! Сформирован универсальный IPA."
+echo "==> Сборка завершена!"
