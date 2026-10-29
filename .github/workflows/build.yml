@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     name: Компиляция Swift и сборка IPA
-    runs-on: macos-13
+    runs-on: macos-latest
 
     steps:
       - name: Клонирование репозитория
