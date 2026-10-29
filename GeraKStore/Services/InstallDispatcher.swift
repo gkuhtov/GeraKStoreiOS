@@ -6,13 +6,12 @@ public final class InstallDispatcher {
 
     private init() {}
 
-    /// Генерирует XML-манифест для iOS OTA-установщика
+    /// Генерирует XML-манифест для OTA-установки
     public func generateManifest(bundleId: String, version: String, title: String, ipaFileName: String) -> URL? {
-        let port = StoreConfig.localServerPort
-        let host = StoreConfig.localServerHost
-        let ipaUrl = "http://\(host):\(port)/download/\(ipaFileName)"
+        let signedDir = PathConfig.getDirectory(PathConfig.signedAppsFolder)
+        let manifestUrl = signedDir.appendingPathComponent("manifest.plist")
 
-        let plistContent = """
+        let xmlContent = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
@@ -26,7 +25,7 @@ public final class InstallDispatcher {
                             <key>kind</key>
                             <string>software-package</string>
                             <key>url</key>
-                            <string>\(ipaUrl)</string>
+                            <string>http://127.0.0.1:8080/\(ipaFileName)</string>
                         </dict>
                     </array>
                     <key>metadata</key>
@@ -46,29 +45,27 @@ public final class InstallDispatcher {
         </plist>
         """
 
-        let tempDir = PathConfig.getDirectory(PathConfig.tempCacheFolder)
-        let manifestFile = tempDir.appendingPathComponent("manifest.plist")
-
         do {
-            try plistContent.write(to: manifestFile, atomically: true, encoding: .utf8)
-            return manifestFile
+            try xmlContent.write(to: manifestUrl, atomically: true, encoding: .utf8)
+            return manifestUrl
         } catch {
             print("Ошибка записи manifest.plist: \(error.localizedDescription)")
             return nil
         }
     }
 
-    /// Открывает системную ссылку itms-services для запуска установки
+    /// Запускает сервер и инициирует установку через itms-services
     public func triggerInstallation(manifestEndpoint: String = "manifest.plist") {
-        let port = StoreConfig.localServerPort
-        let host = StoreConfig.localServerHost
-        let installString = "itms-services://?action=download-manifest&url=http://\(host):\(port)/\(manifestEndpoint)"
+        OTAServer.shared.start()
 
-        guard let url = URL(string: installString) else { return }
+        let itmsUrlString = "itms-services://?action=download-manifest&url=http://127.0.0.1:8080/\(manifestEndpoint)"
+        guard let url = URL(string: itmsUrlString) else { return }
 
         DispatchQueue.main.async {
-            if UIApplication.shared.canOpenURL(url) {
-                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            UIApplication.shared.open(url, options: [:]) { success in
+                if success {
+                    print("Запрос на установку успешно отправлен системе iOS")
+                }
             }
         }
     }
