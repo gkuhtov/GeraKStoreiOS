@@ -1,5 +1,20 @@
 import Foundation
 
+public struct VersionRecord: Codable, Identifiable, Hashable {
+    public var id: String { version }
+    public let version: String
+    public let releaseDate: String
+    public let downloadUrl: URL
+    public let changelog: String
+
+    public init(version: String, releaseDate: String, downloadUrl: URL, changelog: String) {
+        self.version = version
+        self.releaseDate = releaseDate
+        self.downloadUrl = downloadUrl
+        self.changelog = changelog
+    }
+}
+
 public struct GBoxRepo: Codable {
     public let name: String?
     public let identifier: String?
@@ -31,6 +46,9 @@ public struct AppItem: Codable, Identifiable, Hashable {
     public let iconUrl: URL
     public let downloadUrl: URL
     public let isModded: Bool
+    public let tweakAuthor: String?
+    public let sha256: String?
+    public let previousVersions: [VersionRecord]?
 
     public init(gbox: GBoxAppItem) {
         self.id = gbox.bundleIdentifier ?? UUID().uuidString
@@ -55,6 +73,9 @@ public struct AppItem: Codable, Identifiable, Hashable {
         
         self.downloadUrl = URL(string: gbox.down) ?? URL(string: "https://example.com")!
         self.isModded = (gbox.type == 1)
+        self.tweakAuthor = nil
+        self.sha256 = nil
+        self.previousVersions = nil
     }
 
     public init(
@@ -69,7 +90,10 @@ public struct AppItem: Codable, Identifiable, Hashable {
         description: String,
         iconUrl: URL,
         downloadUrl: URL,
-        isModded: Bool = false
+        isModded: Bool = false,
+        tweakAuthor: String? = nil,
+        sha256: String? = nil,
+        previousVersions: [VersionRecord]? = nil
     ) {
         self.id = id
         self.name = name
@@ -83,5 +107,8 @@ public struct AppItem: Codable, Identifiable, Hashable {
         self.iconUrl = iconUrl
         self.downloadUrl = downloadUrl
         self.isModded = isModded
+        self.tweakAuthor = tweakAuthor
+        self.sha256 = sha256
+        self.previousVersions = previousVersions
     }
 }
