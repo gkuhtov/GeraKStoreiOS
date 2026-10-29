@@ -1,113 +1,72 @@
 import Foundation
+import Combine
 
 public final class CatalogService: ObservableObject {
     public static let shared = CatalogService()
 
-    @Published public var allApps: [AppItem] = []
+    @Published public var apps: [AppItem] = []
     @Published public var isLoading: Bool = false
     @Published public var errorMessage: String? = nil
+
+    private let catalogUrl = URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStoreiOS/main/apps.json")!
 
     private init() {
         loadCatalog()
     }
 
     public func loadCatalog() {
-        isLoading = true
-        errorMessage = nil
+        self.isLoading = true
+        self.errorMessage = nil
 
-        let url = StoreConfig.catalogURL
+        var request = URLRequest(url: catalogUrl)
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        request.timeoutInterval = 10.0
 
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 self?.isLoading = false
-
+                
                 if let error = error {
-                    self?.errorMessage = error.localizedDescription
-                    self?.loadFallbackMockData()
+                    print("Ошибка запроса каталога: \(error.localizedDescription)")
+                    self?.loadLocalFallback()
                     return
                 }
 
                 guard let data = data else {
-                    self?.loadFallbackMockData()
+                    self?.loadLocalFallback()
                     return
                 }
 
                 do {
-                    let decoded = try JSONDecoder().decode([AppItem].self, from: data)
-                    self?.allApps = decoded
+                    let decodedApps = try JSONDecoder().decode([AppItem].self, from: data)
+                    self?.apps = decodedApps
+                    print("Успешно загружено приложений из репозитория: \(decodedApps.count)")
                 } catch {
                     print("Ошибка декодирования apps.json: \(error)")
-                    self?.loadFallbackMockData()
+                    self?.loadLocalFallback()
                 }
             }
         }.resume()
     }
 
-    /// Резервные стартовые данные на случай отсутствия сети
-    private func loadFallbackMockData() {
-        self.allApps = [
-            AppItem(
-                id: "sberbank",
-                bundleId: "ru.sberbank.sberbankonline",
-                name: "СберБанк",
-                version: "16.2.0",
-                size: "312 МБ",
-                iconUrl: URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icons/sber.png")!,
-                downloadUrl: URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/ipa/sber.ipa")!,
-                category: "apps",
-                subcategory: "Банки",
-                description: "Официальный мобильный клиент Сбербанка. Платежи, переводы по СБП, вклады и кредиты.",
-                isRemovedFromAppStore: true,
-                isModded: false,
-                minOSVersion: "15.0",
-                sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-            ),
-            AppItem(
-                id: "tbank",
-                bundleId: "com.tcsbank.mobile",
-                name: "Т-Банк",
-                version: "6.34.1",
-                size: "285 МБ",
-                iconUrl: URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icons/tbank.png")!,
-                downloadUrl: URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/ipa/tbank.ipa")!,
-                category: "apps",
-                subcategory: "Банки",
-                description: "Клиент банка Т-Банк (Тинькофф). Кэшбэк, переводы, сервис брокера и связь.",
-                isRemovedFromAppStore: true,
-                isModded: false,
-                minOSVersion: "15.0"
-            ),
-            AppItem(
-                id: "bhtiktok",
-                bundleId: "com.zhiliaoapp.musically",
-                name: "TikTok BHTikTok",
-                version: "36.5.0",
-                size: "240 МБ",
-                iconUrl: URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icons/tiktok.png")!,
-                downloadUrl: URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/ipa/tiktok.ipa")!,
-                category: "apps",
-                subcategory: "Соцсети",
-                description: "Модифицированный клиент с твиком BHTikTok: обход ограничений региона, загрузка видео без водяных знаков и аудиофоновый режим.",
-                isRemovedFromAppStore: false,
-                isModded: true,
-                tweakAuthor: "@BandarHL",
-                minOSVersion: "15.0"
-            ),
-            AppItem(
-                id: "asphalt_legends",
-                bundleId: "com.gameloft.asphalt9",
-                name: "Asphalt Legends Unite",
-                version: "2.1.0",
-                size: "2.8 ГБ",
-                iconUrl: URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icons/asphalt.png")!,
-                downloadUrl: URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/ipa/asphalt.ipa")!,
-                category: "games",
-                subcategory: "Гонки",
-                description: "Аркадный гоночный автосимулятор с кроссплатформенными мультиплеерными гонками.",
-                isRemovedFromAppStore: false,
-                isModded: false,
-                minOSVersion: "16.0"
-            )
-        ]
+    private func loadLocalFallback() {
+        if self.apps.isEmpty {
+            self.apps = [
+                AppItem(
+                    id: "local_keka",
+                    name: "Keka Archiver (Офлайн)",
+                    bundleId: "com.aone.keka",
+                    version: "1.3.1",
+                    minOSVersion: "15.0",
+                    size: "4.2 МБ",
+                    category": "utilities",
+                    subcategory: "Утилиты",
+                    description: "Архиватор для проверки установки в офлайн-режиме.",
+                    iconUrl: URL(string: "https://raw.githubusercontent.com/aonez/Keka/master/Images/icon.png")!,
+                    downloadUrl: URL(string: "https://github.com/aonez/Keka/releases/download/v1.3.1/Keka.ipa")!,
+                    isModded: false
+                )
+            ]
+        }
     }
 }
