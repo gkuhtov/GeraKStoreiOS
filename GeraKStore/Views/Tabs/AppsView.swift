@@ -1,74 +1,132 @@
 import SwiftUI
 
 public struct AppsView: View {
-    @ObservedObject var theme = ThemeConfig.shared
     @ObservedObject var catalog = CatalogService.shared
-    @State private var selectedCategory = "Все"
-    private let categories = ["Все", "Банки", "Фото и видео", "Музыка", "Соцсети", "Утилиты"]
+    @ObservedObject var theme = ThemeConfig.shared
+    @State private var selectedFilter: String = "Все"
 
     public init() {}
 
     private var filteredApps: [AppItem] {
-        let apps = catalog.allApps.filter { $0.category == "apps" }
-        if selectedCategory == "Все" {
-            return apps
+        if selectedFilter == "Все" {
+            // Если нет разделения, показываем все приложения
+            let appsOnly = catalog.apps.filter { $0.category == "apps" }
+            return appsOnly.isEmpty ? catalog.apps : appsOnly
         }
-        return apps.filter { $0.subcategory == selectedCategory }
+        return catalog.apps.filter { $0.subcategory.localizedCaseInsensitiveContains(selectedFilter) }
     }
 
     public var body: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 20) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(categories, id: \.self) { cat in
-                                Button(action: {
-                                    HapticManager.shared.tap()
-                                    selectedCategory = cat
-                                }) {
-                                    Text(cat)
-                                        .font(.system(size: 14, weight: selectedCategory == cat ? .bold : .medium))
-                                        .foregroundColor(selectedCategory == cat ? .white : .gray)
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 8)
-                                        .background(
-                                            selectedCategory == cat
-                                            ? AnyShapeStyle(theme.buttonGradient)
-                                            : AnyShapeStyle(.ultraThinMaterial)
-                                        )
-                                        .clipShape(Capsule())
-                                        .overlay(
-                                            Capsule()
-                                                .stroke(selectedCategory == cat ? theme.rosePrimary.opacity(0.5) : Color.white.opacity(0.1), lineWidth: 0.8)
-                                        )
+            ZStack {
+                theme.canvasBackground.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        // Чипсы фильтра
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(["Все", "Банки", "Фото и видео", "Музыка", "Соцсети"], id: \.self) { tag in
+                                    Button(action: { selectedFilter = tag }) {
+                                        Text(tag)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 7)
+                                            .background(selectedFilter == tag ? theme.rosePrimary : Color.white.opacity(0.08))
+                                            .clipShape(Capsule())
+                                    }
                                 }
                             }
+                            .padding(.horizontal, 16)
                         }
-                        .padding(.horizontal, 20)
-                    }
-                    .padding(.top, 10)
 
-                    Text("Приложения (\(filteredApps.count))")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 20)
+                        // Заголовок со счетчиком
+                        Text("Приложения (\(filteredApps.count))")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
 
-                    LazyVStack(spacing: 12) {
-                        ForEach(filteredApps) { app in
-                            AppItemRow(app: app)
+                        // Список карточек
+                        LazyVStack(spacing: 12) {
+                            ForEach(filteredApps) { app in
+                                NavigationLink(destination: AppDetailView(app: app)) {
+                                    AppCardRow(app: app)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
+                        .padding(.horizontal, 16)
                     }
-                    .padding(.horizontal, 20)
-
-                    Spacer(minLength: 40)
+                    .padding(.top, 12)
+                }
+                .refreshable {
+                    catalog.loadCatalog()
                 }
             }
-            .background(theme.canvasBackground.ignoresSafeArea())
             .navigationTitle("Приложения")
-            .refreshable {
-                catalog.loadCatalog()
-            }
         }
+    }
+}
+
+public struct AppCardRow: View {
+    let app: AppItem
+    @ObservedObject var theme = ThemeConfig.shared
+    @ObservedObject var pipeline = InstallPipeline.shared
+
+    public var body: some View {
+        HStack(spacing: 12) {
+            AsyncImage(url: app.iconUrl) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                default:
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.gray.opacity(0.3))
+                }
+            }
+            .frame(width: 54, height: 54)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(app.name)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    Text(app.subcategory)
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+
+                    if app.isModded {
+                        Text("МОД")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.pink)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.pink.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                }
+            }
+
+            Spacer()
+
+            Button(action: {
+                pipeline.execute(app: app)
+            }) {
+                Text(pipeline.activeApp?.id == app.id ? pipeline.statusDescription : "ЗАГРУЗИТЬ")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(theme.buttonGradient)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 16).fill(theme.glassMaterial))
     }
 }

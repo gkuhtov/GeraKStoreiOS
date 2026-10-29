@@ -31,6 +31,7 @@ public struct GBoxAppItem: Codable {
     public let icon: String?
     public let description: String?
     public let type: Int?
+    public let category: String?
 }
 
 public struct AppItem: Codable, Identifiable, Hashable {
@@ -64,8 +65,17 @@ public struct AppItem: Codable, Identifiable, Hashable {
             self.size = "IPA"
         }
         
-        self.category = "apps"
-        self.subcategory = "GBox Репозиторий"
+        // Автоопределение категории
+        let rawCat = (gbox.category ?? "").lowercased()
+        let rawName = gbox.name.lowercased()
+        if rawCat.contains("game") || rawCat.contains("игр") || rawName.contains("game") {
+            self.category = "games"
+            self.subcategory = "Игры"
+        } else {
+            self.category = "apps"
+            self.subcategory = gbox.category ?? "Приложения"
+        }
+        
         self.description = gbox.description ?? "Приложение из личного репозитория GeraKStore."
         
         let rawIcon = gbox.icon ?? "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icon.png"

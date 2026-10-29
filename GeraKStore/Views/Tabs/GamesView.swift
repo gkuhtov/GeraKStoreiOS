@@ -1,74 +1,45 @@
 import SwiftUI
 
 public struct GamesView: View {
-    @ObservedObject var theme = ThemeConfig.shared
     @ObservedObject var catalog = CatalogService.shared
-    @State private var selectedGenre = "Все"
-    private let genres = ["Все", "Экшен", "Гонки", "Стратегии", "РПГ", "Симуляторы", "Квесты"]
+    @ObservedObject var theme = ThemeConfig.shared
 
     public init() {}
 
-    private var filteredGames: [AppItem] {
-        let games = catalog.allApps.filter { $0.category == "games" }
-        if selectedGenre == "Все" {
-            return games
-        }
-        return games.filter { $0.subcategory == selectedGenre }
+    private var games: [AppItem] {
+        let onlyGames = catalog.apps.filter { $0.category == "games" }
+        return onlyGames.isEmpty ? catalog.apps : onlyGames
     }
 
     public var body: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 20) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(genres, id: \.self) { genre in
-                                Button(action: {
-                                    HapticManager.shared.tap()
-                                    selectedGenre = genre
-                                }) {
-                                    Text(genre)
-                                        .font(.system(size: 14, weight: selectedGenre == genre ? .bold : .medium))
-                                        .foregroundColor(selectedGenre == genre ? .white : .gray)
-                                        .padding(.horizontal, 16)
-                                        .padding(.vertical, 8)
-                                        .background(
-                                            selectedGenre == genre
-                                            ? AnyShapeStyle(theme.buttonGradient)
-                                            : AnyShapeStyle(.ultraThinMaterial)
-                                        )
-                                        .clipShape(Capsule())
-                                        .overlay(
-                                            Capsule()
-                                                .stroke(selectedGenre == genre ? theme.rosePrimary.opacity(0.5) : Color.white.opacity(0.1), lineWidth: 0.8)
-                                        )
+            ZStack {
+                theme.canvasBackground.ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        Text("Игры (\(games.count))")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+
+                        LazyVStack(spacing: 12) {
+                            ForEach(games) { game in
+                                NavigationLink(destination: AppDetailView(app: game)) {
+                                    AppCardRow(app: game)
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, 16)
                     }
-                    .padding(.top, 10)
-
-                    Text("Игры (\(filteredGames.count))")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 20)
-
-                    LazyVStack(spacing: 12) {
-                        ForEach(filteredGames) { game in
-                            AppItemRow(app: game)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-
-                    Spacer(minLength: 40)
+                    .padding(.top, 12)
+                }
+                .refreshable {
+                    catalog.loadCatalog()
                 }
             }
-            .background(theme.canvasBackground.ignoresSafeArea())
             .navigationTitle("Игры")
-            .refreshable {
-                catalog.loadCatalog()
-            }
         }
     }
 }
