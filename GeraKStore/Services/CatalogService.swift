@@ -37,95 +37,108 @@ public final class CatalogService: ObservableObject {
                 }
 
                 guard let httpResponse = response as? HTTPURLResponse else {
-                    self.lastStatus = "Нет ответа от сервера"
+                    self.lastStatus = "Нет ответа"
                     return
                 }
 
                 guard httpResponse.statusCode == 200 else {
-                    self.lastStatus = "Ошибка HTTP: \(httpResponse.statusCode)"
+                    self.lastStatus = "HTTP: \(httpResponse.statusCode)"
                     return
                 }
 
                 guard let data = data, !data.isEmpty else {
-                    self.lastStatus = "Файл repo.json пуст"
+                    self.lastStatus = "repo.json пуст"
                     return
                 }
 
-                if let parsed = self.deepSearchApps(data: data), !parsed.isEmpty {
+                if let parsed = self.extractApps(from: data), !parsed.isEmpty {
                     self.apps = parsed
                     self.lastStatus = "Загружено: \(parsed.count) прил."
                 } else {
-                    let preview = String(data: data.prefix(160), encoding: .utf8) ?? ""
-                    self.lastStatus = "Ключи в JSON не найдены: \(preview)"
+                    if let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+                        let keys = dict.keys.joined(separator: ", ")
+                        self.lastStatus = "Ключи в JSON: [\(keys)]"
+                    } else {
+                        self.lastStatus = "Невалидный JSON"
+                    }
                 }
             }
         }.resume()
     }
 
-    private func deepSearchApps(data: Data) -> [AppItem]? {
-        guard let root = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+    private func extractApps(from data: Data) -> [AppItem]? {
+        guard let jsonObject = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
             return nil
         }
 
-        var candidates: [[String: Any]] = []
+        var candidateDicts: [[String: Any]] = []
 
-        // Рекурсивный поиск массива со словарями приложений
-        func inspect(element: Any) {
-            if let dict = element as? [String: Any] {
-                // Если этот словарь сам похож на карточку приложения
-                if (dict["name"] != nil || dict["title"] != nil) &&
-                   (dict["down"] != nil || dict["downloadUrl"] != nil || dict["url"] != nil || dict["link"] != nil || dict["versions"] != nil) {
-                    candidates.append(dict)
-                    return
-                }
-                for (_, value) in dict {
-                    inspect(element: value)
-                }
-            } else if let array = element as? [Any] {
-                for item in array {
-                    inspect(element: item)
+        if let dict = jsonObject as? [String: Any] {
+            // Проверяем прямое наличие массива в корне
+            for key in ["apps", "app", "items", "sourceList", "list"] {
+                if let arr = dict[key] as? [[String: Any]] {
+                    candidateDicts.append(contentsOf: arr)
                 }
             }
+            
+            // Если ничего не найдено, проходим по всем вложенным массивам
+            if candidateDicts.isEmpty {
+                for (_, value) in dict {
+                    if let nested = value as? [[String: Any]] {
+                        candidateDicts.append(contentsOf: nested)
+                    }
+                }
+            }
+        } else if let arr = jsonObject as? [[String: Any]] {
+            candidateDicts = arr
         }
 
-        inspect(element: root)
-        guard !candidates.isEmpty else { return nil }
+        guard !candidateDicts.isEmpty else { return nil }
 
-        return candidates.compactMap { item -> AppItem? in
-            guard let name = item["name"] as? String ?? item["title"] as? String else { return nil }
+        var result: [AppItem] = []
 
-            let bundleId = item["bundleIdentifier"] as? String 
-                ?? item["bundleId"] as? String 
-                ?? item["package"] as? String 
-                ?? item["id"] as? String 
+        for item in candidateDicts {
+            // Название приложения
+            let name = item["name"] as? String ?? item["title"] as? String ?? item["appName"] as? String
+            guard let validName = name, !validName.isEmpty else { continue }
+
+            // Bundle ID
+            let bundleId = item["bundleIdentifier"] as? String
+                ?? item["bundleId"] as? String
+                ?? item["bundleID"] as? String
+                ?? item["package"] as? String
                 ?? UUID().uuidString
 
-            let version = "\(item["version"] ?? item["appVersion"] ?? "1.0.0")"
+            let version = "\(item["version"] ?? item["appVersion"] ?? item["versionName"] ?? "1.0.0")"
 
-            var downloadStr = item["down"] as? String 
-                ?? item["downloadUrl"] as? String 
-                ?? item["url"] as? String 
-                ?? item["link"] as? String 
-                ?? item["download"] as? String 
+            // Ссылка на скачивание
+            var downloadUrlStr = item["down"] as? String
+                ?? item["downloadUrl"] as? String
+                ?? item["url"] as? String
+                ?? item["link"] as? String
+                ?? item["download"] as? String
                 ?? ""
 
-            // Поддержка вложенного списка версий ESign
-            if downloadStr.isEmpty, let versions = item["versions"] as? [[String: Any]], let firstVer = versions.first {
-                downloadStr = firstVer["down"] as? String ?? firstVer["url"] as? String ?? firstVer["link"] as? String ?? ""
+            // Вложенные версии (ESign)
+            if downloadUrlStr.isEmpty, let versions = item["versions"] as? [[String: Any]], let first = versions.first {
+                downloadUrlStr = first["down"] as? String ?? first["url"] as? String ?? first["link"] as? String ?? ""
             }
 
-            guard let downloadUrl = URL(string: downloadStr.trimmingCharacters(in: .whitespacesAndNewlines)),
-                  !downloadStr.isEmpty else { return nil }
+            guard let dlUrl = URL(string: downloadUrlStr.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  !downloadUrlStr.isEmpty else {
+                continue
+            }
 
-            let iconStr = item["icon"] as? String 
-                ?? item["iconUrl"] as? String 
-                ?? item["artwork"] as? String 
+            // Иконка
+            let iconStr = item["icon"] as? String
+                ?? item["iconUrl"] as? String
+                ?? item["artwork"] as? String
                 ?? "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icon.png"
-            let iconUrl = URL(string: iconStr.trimmingCharacters(in: .whitespacesAndNewlines)) 
+            let iconUrl = URL(string: iconStr.trimmingCharacters(in: .whitespacesAndNewlines))
                 ?? URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icon.png")!
 
-            let desc = item["description"] as? String 
-                ?? item["desc"] as? String 
+            let desc = item["description"] as? String
+                ?? item["desc"] as? String
                 ?? "Приложение из личного репозитория GeraKStore."
 
             var sizeStr = "IPA"
@@ -137,18 +150,18 @@ public final class CatalogService: ObservableObject {
                 sizeStr = str
             }
 
-            let categoryField = (item["category"] as? String ?? item["type"] as? String ?? "").lowercased()
-            let nameField = name.lowercased()
-            let isGame = categoryField.contains("game") || categoryField.contains("игр") || nameField.contains("game")
+            let cat = (item["category"] as? String ?? item["type"] as? String ?? "").lowercased()
+            let n = validName.lowercased()
+            let isGame = cat.contains("game") || cat.contains("игр") || n.contains("game")
             let category = isGame ? "games" : "apps"
             let subcategory = item["category"] as? String ?? (isGame ? "Игры" : "Приложения")
 
             let typeInt = item["type"] as? Int ?? 0
-            let isModded = (typeInt == 1) || nameField.contains("mod") || nameField.contains("твик") || nameField.contains("bhtiktok")
+            let isModded = (typeInt == 1) || n.contains("mod") || n.contains("твик")
 
-            return AppItem(
+            result.append(AppItem(
                 id: bundleId,
-                name: name,
+                name: validName,
                 bundleId: bundleId,
                 version: version,
                 minOSVersion: "15.0",
@@ -157,9 +170,11 @@ public final class CatalogService: ObservableObject {
                 subcategory: subcategory,
                 description: desc,
                 iconUrl: iconUrl,
-                downloadUrl: downloadUrl,
+                downloadUrl: dlUrl,
                 isModded: isModded
-            )
+            ))
         }
+
+        return result
     }
 }
