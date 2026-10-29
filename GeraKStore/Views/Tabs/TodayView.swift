@@ -3,7 +3,6 @@ import SwiftUI
 public struct TodayView: View {
     @ObservedObject var catalog = CatalogService.shared
     @ObservedObject var theme = ThemeConfig.shared
-    @ObservedObject var certManager = CertificateManager.shared
 
     public init() {}
 
@@ -25,7 +24,7 @@ public struct TodayView: View {
                                     .font(.system(size: 11, weight: .bold))
                                     .foregroundColor(.pink)
                                 Spacer()
-                                Text("\(certManager.remainingDays) дней")
+                                Text("312 дней")
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(.secondary)
                             }
