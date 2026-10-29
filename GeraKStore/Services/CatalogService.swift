@@ -59,7 +59,7 @@ public final class CatalogService: ObservableObject {
                     version: "1.3.1",
                     minOSVersion: "15.0",
                     size: "4.2 МБ",
-                    category": "utilities",
+                    category: "utilities",
                     subcategory: "Утилиты",
                     description: "Архиватор для проверки установки в офлайн-режиме.",
                     iconUrl: URL(string: "https://raw.githubusercontent.com/aonez/Keka/master/Images/icon.png")!,
