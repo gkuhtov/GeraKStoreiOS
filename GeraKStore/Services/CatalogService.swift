@@ -51,62 +51,74 @@ public final class CatalogService: ObservableObject {
                     return
                 }
 
-                if let parsed = self.parseFlexibleRepo(data: data), !parsed.isEmpty {
+                if let parsed = self.parseESignGBoxFormat(data: data), !parsed.isEmpty {
                     self.apps = parsed
                     self.lastStatus = "Загружено: \(parsed.count) прил."
                 } else {
-                    // Выведем фрагмент полученного текста для понимания
-                    let preview = String(data: data.prefix(100), encoding: .utf8) ?? "неизвестно"
-                    self.lastStatus = "Ошибка структуры JSON (\(preview.replacingOccurrences(of: "\n", with: " ")))"
+                    let preview = String(data: data.prefix(120), encoding: .utf8) ?? "неизвестно"
+                    self.lastStatus = "Не удалось извлечь приложения из источника: \(preview)"
                 }
             }
         }.resume()
     }
 
-    private func parseFlexibleRepo(data: Data) -> [AppItem]? {
+    private func parseESignGBoxFormat(data: Data) -> [AppItem]? {
         guard let jsonObject = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
             return nil
         }
 
-        var rawItems: [[String: Any]] = []
+        var rawList: [[String: Any]] = []
 
         if let dict = jsonObject as? [String: Any] {
-            // Ищем массив приложений по любым известным ключам
-            for key in ["apps", "items", "list", "applications", "packages", "sources"] {
-                if let array = dict[key] as? [[String: Any]] {
-                    rawItems = array
-                    break
+            // В экспорте ESign/GBox приложения находятся в ключе apps
+            if let apps = dict["apps"] as? [[String: Any]] {
+                rawList = apps
+            } else if let items = dict["items"] as? [[String: Any]] {
+                rawList = items
+            } else {
+                // Если массив лежит внутри другого объекта
+                for (_, value) in dict {
+                    if let nestedArray = value as? [[String: Any]] {
+                        rawList = nestedArray
+                        break
+                    }
                 }
             }
         } else if let array = jsonObject as? [[String: Any]] {
-            rawItems = array
+            rawList = array
         }
 
-        guard !rawItems.isEmpty else { return nil }
+        guard !rawList.isEmpty else { return nil }
 
         var result: [AppItem] = []
 
-        for item in rawItems {
+        for item in rawList {
             // Название приложения
             guard let name = item["name"] as? String ?? item["title"] as? String else { continue }
 
             // Bundle ID
             let bundleId = item["bundleIdentifier"] as? String 
                 ?? item["bundleId"] as? String 
-                ?? item["identifier"] as? String 
+                ?? item["package"] as? String 
+                ?? item["id"] as? String 
                 ?? UUID().uuidString
 
             // Версия
             let version = "\(item["version"] ?? item["appVersion"] ?? "1.0.0")"
 
-            // Ссылка на скачивание
-            let downloadStr = item["down"] as? String 
+            // Ссылка на скачивание (down, downloadUrl, url, link)
+            var downloadStr = item["down"] as? String 
                 ?? item["downloadUrl"] as? String 
                 ?? item["url"] as? String 
                 ?? item["link"] as? String 
                 ?? item["download"] as? String 
                 ?? ""
-            
+
+            // Если ссылка лежит внутри объекта версий (ESign format)
+            if downloadStr.isEmpty, let versions = item["versions"] as? [[String: Any]], let firstVer = versions.first {
+                downloadStr = firstVer["down"] as? String ?? firstVer["url"] as? String ?? ""
+            }
+
             guard let downloadUrl = URL(string: downloadStr.trimmingCharacters(in: .whitespacesAndNewlines)),
                   !downloadStr.isEmpty else { continue }
 
@@ -115,12 +127,15 @@ public final class CatalogService: ObservableObject {
                 ?? item["iconUrl"] as? String 
                 ?? item["artwork"] as? String 
                 ?? "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icon.png"
-            let iconUrl = URL(string: iconStr) ?? URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icon.png")!
+            let iconUrl = URL(string: iconStr.trimmingCharacters(in: .whitespacesAndNewlines)) 
+                ?? URL(string: "https://raw.githubusercontent.com/gkuhtov/GeraKStore/main/icon.png")!
 
             // Описание
-            let desc = item["description"] as? String ?? item["desc"] as? String ?? "Приложение из каталога GeraKStore."
+            let desc = item["description"] as? String 
+                ?? item["desc"] as? String 
+                ?? "Приложение из личного репозитория GeraKStore."
 
-            // Размер
+            // Размер файла
             var sizeStr = "IPA"
             if let bytes = item["size"] as? Int64 {
                 sizeStr = String(format: "%.1f МБ", Double(bytes) / (1024.0 * 1024.0))
@@ -131,14 +146,14 @@ public final class CatalogService: ObservableObject {
             }
 
             // Категория
-            let categoryField = (item["category"] as? String ?? "").lowercased()
+            let categoryField = (item["category"] as? String ?? item["type"] as? String ?? "").lowercased()
             let nameField = name.lowercased()
             let isGame = categoryField.contains("game") || categoryField.contains("игр") || nameField.contains("game")
             let category = isGame ? "games" : "apps"
             let subcategory = item["category"] as? String ?? (isGame ? "Игры" : "Приложения")
 
             let typeInt = item["type"] as? Int ?? 0
-            let isModded = (typeInt == 1) || nameField.contains("mod") || nameField.contains("твик")
+            let isModded = (typeInt == 1) || nameField.contains("mod") || nameField.contains("твик") || nameField.contains("bhtiktok")
 
             result.append(AppItem(
                 id: bundleId,
