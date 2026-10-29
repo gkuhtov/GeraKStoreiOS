@@ -25,7 +25,7 @@ public struct GamesView: View {
 
                         LazyVStack(spacing: 12) {
                             ForEach(games) { game in
-                                NavigationLink(destination: AppDetailView(app: game)) {
+                                NavigationLink(destination: ProductDetailView(app: game)) {
                                     AppCardRow(app: game)
                                 }
                                 .buttonStyle(.plain)
