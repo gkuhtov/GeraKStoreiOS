@@ -6,7 +6,6 @@ public final class InstallDispatcher {
 
     private init() {}
 
-    /// Генерирует XML-манифест для OTA-установки
     public func generateManifest(bundleId: String, version: String, title: String, ipaFileName: String) -> URL? {
         let signedDir = PathConfig.getDirectory(PathConfig.signedAppsFolder)
         let manifestUrl = signedDir.appendingPathComponent("manifest.plist")
@@ -25,7 +24,7 @@ public final class InstallDispatcher {
                             <key>kind</key>
                             <string>software-package</string>
                             <key>url</key>
-                            <string>http://127.0.0.1:8080/\(ipaFileName)</string>
+                            <string>https://127.0.0.1:8443/\(ipaFileName)</string>
                         </dict>
                     </array>
                     <key>metadata</key>
@@ -49,24 +48,18 @@ public final class InstallDispatcher {
             try xmlContent.write(to: manifestUrl, atomically: true, encoding: .utf8)
             return manifestUrl
         } catch {
-            print("Ошибка записи manifest.plist: \(error.localizedDescription)")
             return nil
         }
     }
 
-    /// Запускает сервер и инициирует установку через itms-services
-    public func triggerInstallation(manifestEndpoint: String = "manifest.plist") {
+    public func triggerInstallation() {
         OTAServer.shared.start()
 
-        let itmsUrlString = "itms-services://?action=download-manifest&url=http://127.0.0.1:8080/\(manifestEndpoint)"
+        let itmsUrlString = "itms-services://?action=download-manifest&url=https://127.0.0.1:8443/manifest.plist"
         guard let url = URL(string: itmsUrlString) else { return }
 
-        DispatchQueue.main.async {
-            UIApplication.shared.open(url, options: [:]) { success in
-                if success {
-                    print("Запрос на установку успешно отправлен системе iOS")
-                }
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            UIApplication.shared.open(url, options: [:]) { _ in }
         }
     }
 }

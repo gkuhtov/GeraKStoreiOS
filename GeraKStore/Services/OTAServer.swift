@@ -1,31 +1,38 @@
 import Foundation
 import Network
+import Security
 
 public final class OTAServer {
     public static let shared = OTAServer()
 
     private var listener: NWListener?
-    private let port: UInt16 = 8080
+    public let port: UInt16 = 8443
     private var isRunning: Bool = false
 
     private init() {}
 
-    /// Запуск локального HTTP сервера на порту 8080
     public func start() {
         guard !isRunning else { return }
 
         do {
-            let parameters = NWParameters.tcp
+            let tlsOptions = NWProtocolTLS.Options()
+            sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, sec_protocol_verify_complete in
+                sec_protocol_verify_complete(true)
+            }, .global())
+
+            let parameters = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
+            parameters.allowLocalEndpointReuse = true
+
             self.listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
-            
-            self.listener?.stateUpdateHandler = { state in
+
+            self.listener?.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .ready:
-                    self.isRunning = true
-                    print("OTA HTTP Сервер запущен на порту \(self.port)")
+                    self?.isRunning = true
+                    print("OTA HTTPS Сервер активен на порту \(self?.port ?? 8443)")
                 case .failed(let error):
                     print("Ошибка OTA Сервера: \(error.localizedDescription)")
-                    self.stop()
+                    self?.stop()
                 default:
                     break
                 }
@@ -37,16 +44,14 @@ public final class OTAServer {
 
             self.listener?.start(queue: .global(qos: .userInitiated))
         } catch {
-            print("Не удалось инициализировать NWListener: \(error.localizedDescription)")
+            print("Ошибка запуска NWListener: \(error.localizedDescription)")
         }
     }
 
-    /// Остановка сервера после завершения установки
     public func stop() {
         listener?.cancel()
         listener = nil
         isRunning = false
-        print("OTA HTTP Сервер остановлен")
     }
 
     private func handleConnection(_ connection: NWConnection) {
@@ -55,94 +60,59 @@ public final class OTAServer {
     }
 
     private func receiveRequest(_ connection: NWConnection) {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, isComplete, error in
-            guard let self = self, let data = data, !data.isEmpty else {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, _ in
+            guard let self = self, let data = data, let req = String(data: data, encoding: .utf8) else {
                 connection.cancel()
                 return
             }
-
-            if let requestString = String(data: data, encoding: .utf8) {
-                self.processHttpRequest(request: requestString, connection: connection)
-            } else {
-                connection.cancel()
-            }
+            self.processHttpRequest(request: req, connection: connection)
         }
     }
 
     private func processHttpRequest(request: String, connection: NWConnection) {
         let lines = request.components(separatedBy: "\r\n")
-        guard let firstLine = lines.first else {
+        guard let firstLine = lines.first, firstLine.hasPrefix("GET") else {
             connection.cancel()
             return
         }
 
         let parts = firstLine.components(separatedBy: " ")
-        guard parts.count >= 2, parts[0] == "GET" else {
+        guard parts.count >= 2 else {
             connection.cancel()
             return
         }
 
-        let rawPath = parts[1]
-        let cleanPath = rawPath.split(separator: "?").first.map(String.init) ?? rawPath
+        let path = parts[1].split(separator: "?").first.map(String.init) ?? parts[1]
 
-        if cleanPath == "/manifest.plist" {
-            serveManifest(connection: connection)
-        } else if cleanPath.hasSuffix(".ipa") {
-            let fileName = (cleanPath as NSString).lastPathComponent
-            serveIPA(fileName: fileName, connection: connection)
+        if path == "/manifest.plist" {
+            serveFile(name: "manifest.plist", mime: "text/xml", connection: connection)
+        } else if path.hasSuffix(".ipa") {
+            let fileName = (path as NSString).lastPathComponent
+            serveFile(name: fileName, mime: "application/octet-stream", connection: connection)
         } else {
-            sendNotFound(connection: connection)
+            let notFound = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            connection.send(content: notFound.data(using: .utf8), completion: .contentProcessed({ _ in connection.cancel() }))
         }
     }
 
-    private func serveManifest(connection: NWConnection) {
-        let manifestUrl = PathConfig.getDirectory(PathConfig.signedAppsFolder).appendingPathComponent("manifest.plist")
-        guard let data = try? Data(contentsOf: manifestUrl) else {
-            sendNotFound(connection: connection)
+    private func serveFile(name: String, mime: String, connection: NWConnection) {
+        let fileUrl = PathConfig.getDirectory(PathConfig.signedAppsFolder).appendingPathComponent(name)
+        guard let data = try? Data(contentsOf: fileUrl) else {
+            let notFound = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            connection.send(content: notFound.data(using: .utf8), completion: .contentProcessed({ _ in connection.cancel() }))
             return
         }
 
         let headers = "HTTP/1.1 200 OK\r\n" +
-                      "Content-Type: text/xml\r\n" +
+                      "Content-Type: \(mime)\r\n" +
                       "Content-Length: \(data.count)\r\n" +
+                      "Access-Control-Allow-Origin: *\r\n" +
                       "Connection: close\r\n\r\n"
 
-        sendResponse(headers: headers, body: data, connection: connection)
-    }
+        var responseData = headers.data(using: .utf8) ?? Data()
+        responseData.append(data)
 
-    private func serveIPA(fileName: String, connection: NWConnection) {
-        let ipaUrl = PathConfig.getDirectory(PathConfig.signedAppsFolder).appendingPathComponent(fileName)
-        guard let data = try? Data(contentsOf: ipaUrl) else {
-            sendNotFound(connection: connection)
-            return
-        }
-
-        let headers = "HTTP/1.1 200 OK\r\n" +
-                      "Content-Type: application/octet-stream\r\n" +
-                      "Content-Disposition: attachment; filename=\"\(fileName)\"\r\n" +
-                      "Content-Length: \(data.count)\r\n" +
-                      "Connection: close\r\n\r\n"
-
-        sendResponse(headers: headers, body: data, connection: connection)
-    }
-
-    private func sendResponse(headers: String, body: Data, connection: NWConnection) {
-        guard let headerData = headers.data(using: .utf8) else {
-            connection.cancel()
-            return
-        }
-
-        var fullData = headerData
-        fullData.append(body)
-
-        connection.send(content: fullData, completion: .contentProcessed({ _ in
-            connection.cancel()
-        }))
-    }
-
-    private func sendNotFound(connection: NWConnection) {
-        let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-        connection.send(content: response.data(using: .utf8), completion: .contentProcessed({ _ in
+        connection.send(content: responseData, completion: .contentProcessed({ _ in
             connection.cancel()
         }))
     }

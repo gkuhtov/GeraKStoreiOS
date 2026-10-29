@@ -1,25 +1,21 @@
 import Foundation
-import Security
 
 public enum SigningError: LocalizedError {
     case missingCertificate
     case missingProvisioningProfile
-    case extractionFailed
-    case packagingFailed
-    case entitlementsExtractionFailed
+    case zsignBinaryNotFound
+    case executionFailed(String)
 
     public var errorDescription: String? {
         switch self {
         case .missingCertificate:
-            return "Файл сертификата (.p12) не найден."
+            return "Сертификат (.p12) не найден. Добавьте его в Настройках."
         case .missingProvisioningProfile:
-            return "Профиль обеспечения (.mobileprovision) отсутствует."
-        case .extractionFailed:
-            return "Не удалось распаковать исходный IPA."
-        case .packagingFailed:
-            return "Ошибка финальной упаковки IPA."
-        case .entitlementsExtractionFailed:
-            return "Не удалось извлечь права (Entitlements) из профиля."
+            return "Профиль (.mobileprovision) не найден. Добавьте его в Настройках."
+        case .zsignBinaryNotFound:
+            return "Движок zsign не найден в бандле."
+        case .executionFailed(let msg):
+            return "Ошибка подписи: \(msg)"
         }
     }
 }
@@ -29,7 +25,6 @@ public final class IPASigningEngine {
 
     private init() {}
 
-    /// Выполняет полный цикл переподписи приложения
     public func sign(
         ipaUrl: URL,
         newBundleId: String? = nil,
@@ -39,14 +34,10 @@ public final class IPASigningEngine {
     ) {
         DispatchQueue.global(qos: .userInitiated).async {
             let fileManager = FileManager.default
-            let tempDir = PathConfig.getDirectory(PathConfig.tempBuildFolder)
-                .appendingPathComponent(UUID().uuidString)
             let certsDir = PathConfig.getDirectory(PathConfig.certificatesFolder)
-
             let p12Path = certsDir.appendingPathComponent("cert.p12")
             let provisionPath = certsDir.appendingPathComponent("embedded.mobileprovision")
 
-            // Валидация входных данных
             guard fileManager.fileExists(atPath: p12Path.path) else {
                 completion(.failure(SigningError.missingCertificate))
                 return
@@ -56,81 +47,71 @@ public final class IPASigningEngine {
                 return
             }
 
-            do {
-                try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
-                defer { try? fileManager.removeItem(at: tempDir) }
+            guard let zsignBinary = Bundle.main.path(forResource: "zsign", ofType: nil) ?? 
+                  Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("zsign").path,
+                  fileManager.fileExists(atPath: zsignBinary) else {
+                completion(.failure(SigningError.zsignBinaryNotFound))
+                return
+            }
 
-                progress(0.1, "Распаковка пакета...")
-                let payloadDir = tempDir.appendingPathComponent("Payload")
-                try self.unzip(source: ipaUrl, destination: tempDir)
+            progress(0.2, "Подготовка к подписи...")
 
-                guard let appFolder = try fileManager.contentsOfDirectory(at: payloadDir, includingPropertiesForKeys: nil)
-                    .first(where: { $0.pathExtension == "app" }) else {
-                    completion(.failure(SigningError.extractionFailed))
-                    return
-                }
+            let outputIpaName = "signed_\(ipaUrl.lastPathComponent)"
+            let outputIpaUrl = PathConfig.getDirectory(PathConfig.signedAppsFolder).appendingPathComponent(outputIpaName)
 
-                progress(0.3, "Инъекция мобильного профиля...")
-                let targetProvisionUrl = appFolder.appendingPathComponent("embedded.mobileprovision")
-                if fileManager.fileExists(atPath: targetProvisionUrl.path) {
-                    try fileManager.removeItem(at: targetProvisionUrl)
-                }
-                try fileManager.copyItem(at: provisionPath, to: targetProvisionUrl)
+            if fileManager.fileExists(atPath: outputIpaUrl.path) {
+                try? fileManager.removeItem(at: outputIpaUrl)
+            }
 
-                progress(0.5, "Модификация метаданных...")
-                let infoPlistUrl = appFolder.appendingPathComponent("Info.plist")
-                if var plistDict = NSDictionary(contentsOf: infoPlistUrl) as? [String: Any] {
-                    if let newId = newBundleId {
-                        plistDict["CFBundleIdentifier"] = newId
-                    }
-                    if let newName = customDisplayName {
-                        plistDict["CFBundleDisplayName"] = newName
-                        plistDict["CFBundleName"] = newName
-                    }
-                    let updatedPlistData = try PropertyListSerialization.data(fromPropertyList: plistDict, format: .xml, options: 0)
-                    try updatedPlistData.write(to: infoPlistUrl)
-                }
+            var arguments: [String] = [
+                zsignBinary,
+                "-k", p12Path.path,
+                "-m", provisionPath.path,
+                "-o", outputIpaUrl.path
+            ]
 
-                progress(0.7, "Формирование подписи CodeResources...")
-                let codeSignatureDir = appFolder.appendingPathComponent("_CodeSignature")
-                if !fileManager.fileExists(atPath: codeSignatureDir.path) {
-                    try fileManager.createDirectory(at: codeSignatureDir, withIntermediateDirectories: true)
-                }
+            // Пароль от p12 из настроек
+            let password = UserDefaults.standard.string(forKey: "cert_password") ?? ""
+            if !password.isEmpty {
+                arguments.append(contentsOf: ["-p", password])
+            }
 
-                progress(0.9, "Финальная сборка IPA...")
-                let signedIpaName = "signed_\(ipaUrl.lastPathComponent)"
-                let finalSignedIpaUrl = PathConfig.getDirectory(PathConfig.signedAppsFolder)
-                    .appendingPathComponent(signedIpaName)
+            if let bundleId = newBundleId, !bundleId.isEmpty {
+                arguments.append(contentsOf: ["-b", bundleId])
+            }
 
-                if fileManager.fileExists(atPath: finalSignedIpaUrl.path) {
-                    try fileManager.removeItem(at: finalSignedIpaUrl)
-                }
+            if let displayName = customDisplayName, !displayName.isEmpty {
+                arguments.append(contentsOf: ["-n", displayName])
+            }
 
-                try self.zip(sourceDir: tempDir, destination: finalSignedIpaUrl)
+            arguments.append(ipaUrl.path)
 
-                progress(1.0, "Пакет готов к установке")
-                completion(.success(finalSignedIpaUrl))
+            progress(0.5, "Выполнение zsign...")
 
-            } catch {
-                completion(.failure(error))
+            let success = self.runExecutable(args: arguments)
+            if success && fileManager.fileExists(atPath: outputIpaUrl.path) {
+                progress(1.0, "Пакет успешно подписан")
+                completion(.success(outputIpaUrl))
+            } else {
+                completion(.failure(SigningError.executionFailed("Сбой выполнения zsign")))
             }
         }
     }
 
-    private func unzip(source: URL, destination: URL) throws {
-        // Системный вызов распаковки через Process недоступен на iOS;
-        // распаковка структурно эмулируется через прямой перенос или системный декомпрессор.
-        let fm = FileManager.default
-        let payload = destination.appendingPathComponent("Payload/Application.app")
-        try fm.createDirectory(at: payload, withIntermediateDirectories: true)
-    }
-
-    private func zip(sourceDir: URL, destination: URL) throws {
-        // Создание результирующего архива
-        let fm = FileManager.default
-        if fm.fileExists(atPath: destination.path) {
-            try fm.removeItem(at: destination)
+    private func runExecutable(args: [String]) -> Bool {
+        guard let binary = args.first else { return false }
+        
+        var pid: pid_t = 0
+        let cArgs = args.map { strdup($0) } + [nil]
+        defer {
+            for ptr in cArgs where ptr != nil { free(ptr) }
         }
-        try fm.copyItem(at: sourceDir, to: destination)
+
+        let result = posix_spawn(&pid, binary, nil, nil, cArgs, nil)
+        guard result == 0 else { return false }
+
+        var status: Int32 = 0
+        waitpid(pid, &status, 0)
+        return status == 0
     }
 }
