@@ -1,15 +1,17 @@
 #include "zsign_bridge.h"
 #include <vector>
 #include <string>
-#include <iostream>
-#include <unistd.h>
-#include <fcntl.h>
 #include <cstring>
 #include <cstdlib>
+#include <iostream>
+#include <sstream>
+#include <unistd.h>
 
-extern int zsign_main(int argc, char* argv[]);
+// В оригинальном zhlynn/zsign сигнатура: int main(int argc, char *argv[])
+// При компиляции с флагом -Dmain=zsign_main она становится:
+int zsign_main(int argc, char *argv[]);
 
-int run_zsign_direct(
+extern "C" int run_zsign_direct(
     const char* ipa_path,
     const char* p12_path,
     const char* password,
@@ -21,98 +23,75 @@ int run_zsign_direct(
     char* error_log,
     int max_log_len
 ) {
-    if (temp_dir && temp_dir[0] != '\0') {
+    if (temp_dir && strlen(temp_dir) > 0) {
         setenv("TMPDIR", temp_dir, 1);
     }
 
-    std::vector<std::string> args = {"zsign"};
+    std::vector<std::string> args;
+    args.push_back("zsign");
 
-    if (p12_path && p12_path[0] != '\0') {
+    if (p12_path && strlen(p12_path) > 0) {
         args.push_back("-k");
         args.push_back(p12_path);
     }
-
-    if (password && password[0] != '\0') {
+    if (password && strlen(password) > 0) {
         args.push_back("-p");
         args.push_back(password);
     }
-
-    if (provision_path && provision_path[0] != '\0') {
+    if (provision_path && strlen(provision_path) > 0) {
         args.push_back("-m");
         args.push_back(provision_path);
     }
-
-    if (output_path && output_path[0] != '\0') {
-        args.push_back("-o");
-        args.push_back(output_path);
-    }
-
-    if (bundle_id && bundle_id[0] != '\0') {
+    if (bundle_id && strlen(bundle_id) > 0) {
         args.push_back("-b");
         args.push_back(bundle_id);
     }
-
-    if (display_name && display_name[0] != '\0') {
+    if (display_name && strlen(display_name) > 0) {
         args.push_back("-n");
         args.push_back(display_name);
     }
-
-    // Принудительная замена старых подписей и сжатие
-    args.push_back("-f");
-    args.push_back("-z");
-    args.push_back("1");
-
-    if (ipa_path && ipa_path[0] != '\0') {
+    if (output_path && strlen(output_path) > 0) {
+        args.push_back("-o");
+        args.push_back(output_path);
+    }
+    if (ipa_path && strlen(ipa_path) > 0) {
+        args.push_back("-z");
+        args.push_back("9");
         args.push_back(ipa_path);
     }
 
-    std::vector<char*> c_args;
-    for (auto& s : args) {
-        c_args.push_back(const_cast<char*>(s.c_str()));
+    std::vector<char*> argv;
+    for (size_t i = 0; i < args.size(); ++i) {
+        argv.push_back(const_cast<char*>(args[i].c_str()));
     }
-    c_args.push_back(nullptr);
+    argv.push_back(nullptr);
 
-    int pipe_fds[2];
-    if (pipe(pipe_fds) == -1) {
-        return -1;
-    }
+    std::stringstream buffer;
+    std::streambuf* old_cerr = std::cerr.rdbuf(buffer.rdbuf());
+    std::streambuf* old_cout = std::cout.rdbuf(buffer.rdbuf());
 
-    int saved_stdout = dup(STDOUT_FILENO);
-    int saved_stderr = dup(STDERR_FILENO);
-
-    dup2(pipe_fds[1], STDOUT_FILENO);
-    dup2(pipe_fds[1], STDERR_FILENO);
-    close(pipe_fds[1]);
+    // Сброс индекса getopt_long для повторных вызовов внутри процесса iOS
+    optind = 1;
 
     int result = -1;
     try {
-        result = zsign_main(static_cast<int>(c_args.size() - 1), c_args.data());
+        result = zsign_main(static_cast<int>(argv.size() - 1), argv.data());
     } catch (const std::exception& e) {
-        std::cerr << "Exception: " << e.what() << std::endl;
-        result = -1;
+        buffer << "C++ Exception: " << e.what() << "\n";
+        result = -2;
     } catch (...) {
-        std::cerr << "Unknown exception" << std::endl;
-        result = -1;
+        buffer << "Unknown C++ Exception in zsign_main\n";
+        result = -3;
     }
 
-    fflush(stdout);
-    fflush(stderr);
-
-    dup2(saved_stdout, STDOUT_FILENO);
-    dup2(saved_stderr, STDERR_FILENO);
-    close(saved_stdout);
-    close(saved_stderr);
+    std::cerr.rdbuf(old_cerr);
+    std::cout.rdbuf(old_cout);
 
     if (error_log && max_log_len > 0) {
-        fcntl(pipe_fds[0], F_SETFL, O_NONBLOCK);
-        ssize_t bytes_read = read(pipe_fds[0], error_log, max_log_len - 1);
-        if (bytes_read > 0) {
-            error_log[bytes_read] = '\0';
-        } else {
-            error_log[0] = '\0';
-        }
+        std::string out = buffer.str();
+        std::strncpy(error_log, out.c_str(), static_cast<size_t>(max_log_len - 1));
+        error_log[max_log_len - 1] = '\0';
     }
-    close(pipe_fds[0]);
 
     return result;
 }

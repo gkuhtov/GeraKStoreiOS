@@ -22,4 +22,4 @@ int run_zsign_direct(
 }
 #endif
 
-#endif
+#endif /* ZSIGN_BRIDGE_H */
