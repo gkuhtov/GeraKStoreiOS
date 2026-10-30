@@ -47,7 +47,6 @@ int run_zsign_direct(
         args.push_back(output_path);
     }
 
-    // Если bundle_id передан непустым, применяем его
     if (bundle_id && bundle_id[0] != '\0') {
         args.push_back("-b");
         args.push_back(bundle_id);
@@ -58,6 +57,8 @@ int run_zsign_direct(
         args.push_back(display_name);
     }
 
+    // Принудительная замена старых подписей и сжатие
+    args.push_back("-f");
     args.push_back("-z");
     args.push_back("1");
 

@@ -6,7 +6,7 @@ public final class InstallDispatcher {
 
     private init() {}
 
-    public func buildManifestXml(bundleId: String, version: String, title: String, ipaFileName: String) -> String {
+    public func buildManifestXml(hostIp: String, bundleId: String, version: String, title: String, ipaFileName: String) -> String {
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -21,7 +21,7 @@ public final class InstallDispatcher {
                             <key>kind</key>
                             <string>software-package</string>
                             <key>url</key>
-                            <string>http://127.0.0.1:8080/\(ipaFileName)</string>
+                            <string>http://\(hostIp):8080/\(ipaFileName)</string>
                         </dict>
                     </array>
                     <key>metadata</key>
@@ -51,7 +51,9 @@ public final class InstallDispatcher {
     ) {
         OTAServer.shared.start()
 
+        let hostIp = DeviceIPHelper.getLocalIPAddress()
         let xml = buildManifestXml(
+            hostIp: hostIp,
             bundleId: bundleId,
             version: version,
             title: title,
