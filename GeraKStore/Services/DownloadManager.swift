@@ -6,26 +6,37 @@ public final class DownloadManager: NSObject, ObservableObject, URLSessionDownlo
     @Published public var downloadProgress: Float = 0.0
     public var progressHandler: ((Float) -> Void)?
     private var completionHandler: ((URL?) -> Void)?
-    
+
     private var downloadSession: URLSession!
 
     private override init() {
         super.init()
         let configuration = URLSessionConfiguration.default
+        configuration.allowsCellularAccess = true
+        configuration.allowsExpensiveNetworkAccess = true
+        configuration.allowsConstrainedNetworkAccess = true
+        configuration.waitsForConnectivity = true
         configuration.timeoutIntervalForRequest = 60.0
-        configuration.timeoutIntervalForResource = 300.0
+        configuration.timeoutIntervalForResource = 600.0 // 10 минут на выкачивание больших IPA
+        configuration.httpAdditionalHeaders = [
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 GeraKStore/1.0"
+        ]
+
         self.downloadSession = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
     }
 
     public func startDownload(from url: URL, completion: @escaping (URL?) -> Void) {
         self.completionHandler = completion
         self.downloadProgress = 0.0
-        
-        let task = downloadSession.downloadTask(with: url)
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 60.0
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 GeraKStore/1.0", forHTTPHeaderField: "User-Agent")
+
+        let task = downloadSession.downloadTask(with: request)
         task.resume()
     }
 
-    // Обработка прогресса скачивания
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         if totalBytesExpectedToWrite > 0 {
             let progress = Float(totalBytesWritten) / Float(totalBytesExpectedToWrite)
@@ -34,9 +45,7 @@ public final class DownloadManager: NSObject, ObservableObject, URLSessionDownlo
         }
     }
 
-    // Успешная загрузка файла
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        // Проверяем HTTP статус ответа
         if let httpResponse = downloadTask.response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
             print("Download failed with HTTP status: \(httpResponse.statusCode)")
             self.completionHandler?(nil)
@@ -58,7 +67,6 @@ public final class DownloadManager: NSObject, ObservableObject, URLSessionDownlo
         }
     }
 
-    // Обработка ошибки загрузки
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error = error {
             print("Сбой загрузки URLSession: \(error.localizedDescription)")
