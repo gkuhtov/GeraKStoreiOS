@@ -49,21 +49,34 @@ PYEOF
 echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
 if [ ! -d "openssl.xcframework" ]; then
     rm -f openssl.zip
-    OPENSSL_URL="https://github.com/passepartoutvpn/openssl-apple/releases/download/3.3.201/openssl.xcframework.zip"
-    OPENSSL_FALLBACK="https://github.com/passepartoutvpn/openssl-apple/releases/download/3.2.100/openssl.xcframework.zip"
-    
-    echo "Загрузка openssl.xcframework..."
+    OPENSSL_URL="https://github.com/krzyzanowskim/OpenSSL/releases/download/3.3.2000/OpenSSL.xcframework.zip"
+    OPENSSL_FALLBACK="https://github.com/krzyzanowskim/OpenSSL/releases/download/3.1.5004/OpenSSL.xcframework.zip"
+
+    echo "Загрузка OpenSSL.xcframework..."
     if ! curl -fSL --retry 3 --retry-delay 2 "$OPENSSL_URL" -o openssl.zip; then
-        echo "Переключение на резервный источник OpenSSL..."
+        echo "Переключение на стабильное зеркало 3.1.x..."
         curl -fSL --retry 3 --retry-delay 2 "$OPENSSL_FALLBACK" -o openssl.zip
     fi
 
     unzip -q openssl.zip
     rm -f openssl.zip
+
+    # Унификация имени папки, если распаковалась с заглавной буквы
+    if [ -d "OpenSSL.xcframework" ] && [ ! -d "openssl.xcframework" ]; then
+        mv OpenSSL.xcframework openssl.xcframework
+    fi
 fi
 
-OPENSSL_INCLUDE="openssl.xcframework/ios-arm64/Headers"
-OPENSSL_LIB="openssl.xcframework/ios-arm64/libcrypto.a"
+if [ -d "openssl.xcframework/ios-arm64/Headers" ]; then
+    OPENSSL_INCLUDE="openssl.xcframework/ios-arm64/Headers"
+    OPENSSL_LIB="openssl.xcframework/ios-arm64/libcrypto.a"
+elif [ -d "openssl.xcframework/ios-arm64/OpenSSL.framework/Headers" ]; then
+    OPENSSL_INCLUDE="openssl.xcframework/ios-arm64/OpenSSL.framework/Headers"
+    OPENSSL_LIB="openssl.xcframework/ios-arm64/OpenSSL.framework/OpenSSL"
+else
+    OPENSSL_INCLUDE=$(find openssl.xcframework/ios-arm64 -type d -name "Headers" 2>/dev/null | head -n 1)
+    OPENSSL_LIB=$(find openssl.xcframework/ios-arm64 -name "libcrypto.a" -o -name "OpenSSL" 2>/dev/null | head -n 1)
+fi
 
 echo "==> Компиляция C-исходников (minizip)..."
 mkdir -p build/obj
