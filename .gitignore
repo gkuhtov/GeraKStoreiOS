@@ -1,0 +1,5 @@
+
+build/
+*.ipa
+zsign_src/
+openssl.xcframework/
