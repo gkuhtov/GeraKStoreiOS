@@ -34,7 +34,7 @@ public final class InstallPipeline: ObservableObject {
             }
 
             // 2. Локальная переподпись zsign
-            let targetBundleId = isClone ? "\(app.bundleId).clone" : app.bundleId
+            let targetBundleId = IPASigningEngine.shared.extractBundleIdFromProvision() ?? (isClone ? "\(app.bundleId).clone" : app.bundleId)
             let targetTitle = customName ?? app.name
 
             IPASigningEngine.shared.sign(
@@ -54,7 +54,7 @@ public final class InstallPipeline: ObservableObject {
                         switch result {
                         case .success(let signedIpaUrl):
                             self.progress = 0.95
-                            self.statusDescription = "Регистрация установки..."
+                            self.statusDescription = "Установка..."
 
                             InstallDispatcher.shared.triggerInstallation(
                                 bundleId: targetBundleId,
@@ -66,14 +66,14 @@ public final class InstallPipeline: ObservableObject {
                                     self.progress = 1.0
                                     HapticManager.shared.success()
 
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
                                         BackgroundKeepAlive.shared.deactivate()
                                         self.activeApp = nil
                                         self.progress = 0.0
                                         self.statusDescription = ""
                                     }
                                 } else {
-                                    self.handleFailure("Не удалось инициировать установку iOS.")
+                                    self.handleFailure("Не удалось открыть команду установки.")
                                 }
                             }
 

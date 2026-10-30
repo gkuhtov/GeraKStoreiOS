@@ -39,6 +39,30 @@ public final class IPASigningEngine {
 
     private init() {}
 
+    public func extractBundleIdFromProvision() -> String? {
+        let certsDir = PathConfig.getDirectory(PathConfig.certificatesFolder)
+        let provisionPath = certsDir.appendingPathComponent("embedded.mobileprovision")
+        guard let data = try? Data(contentsOf: provisionPath),
+              let stringContent = String(data: data, encoding: .isoLatin1) else {
+            return nil
+        }
+
+        // Ищем application-identifier в XML блоке mobileprovision
+        if let rangeStart = stringContent.range(of: "<key>application-identifier</key>"),
+           let stringTagStart = stringContent.range(of: "<string>", range: rangeStart.upperBound..<stringContent.endIndex),
+           let stringTagEnd = stringContent.range(of: "</string>", range: stringTagStart.upperBound..<stringContent.endIndex) {
+            let fullAppId = String(stringContent[stringTagStart.upperBound..<stringTagEnd.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            // Формат TeamID.bundleId -> отсекаем TeamID
+            if let dotIndex = fullAppId.firstIndex(of: ".") {
+                let parsed = String(fullAppId[fullAppId.index(after: dotIndex)...])
+                if parsed != "*" {
+                    return parsed
+                }
+            }
+        }
+        return nil
+    }
+
     public func sign(
         ipaUrl: URL,
         newBundleId: String? = nil,
@@ -67,7 +91,7 @@ public final class IPASigningEngine {
                 return
             }
 
-            progress(0.2, "Подготовка...")
+            progress(0.2, "Подготовка окружения...")
 
             let outputIpaName = "signed_\(ipaUrl.lastPathComponent)"
             let outputIpaUrl = PathConfig.getDirectory(PathConfig.signedAppsFolder).appendingPathComponent(outputIpaName)
@@ -82,7 +106,10 @@ public final class IPASigningEngine {
             try? fileManager.createDirectory(at: localTempDir, withIntermediateDirectories: true)
             setenv("TMPDIR", localTempDir.path, 1)
 
-            progress(0.4, "Распаковка и подпись...")
+            progress(0.4, "Подпись zsign...")
+
+            // Если профиль привязан к конкретному Bundle ID, используем его, иначе оставляем исходный
+            let effectiveBundleId = self.extractBundleIdFromProvision() ?? newBundleId
 
             var logBuffer = [CChar](repeating: 0, count: 8192)
 
@@ -92,7 +119,7 @@ public final class IPASigningEngine {
                         provisionPath.path.withCString { provC in
                             outputIpaUrl.path.withCString { outC in
                                 localTempDir.path.withCString { tempC in
-                                    let bIdC = newBundleId?.cString(using: .utf8)
+                                    let bIdC = effectiveBundleId?.cString(using: .utf8)
                                     let dNameC = customDisplayName?.cString(using: .utf8)
 
                                     return bIdC.withOptionalCString { bPtr in

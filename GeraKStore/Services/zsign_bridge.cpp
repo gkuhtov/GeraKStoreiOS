@@ -32,7 +32,7 @@ int run_zsign_direct(
         args.push_back(p12_path);
     }
 
-    if (password) {
+    if (password && password[0] != '\0') {
         args.push_back("-p");
         args.push_back(password);
     }
@@ -47,6 +47,7 @@ int run_zsign_direct(
         args.push_back(output_path);
     }
 
+    // Если bundle_id передан непустым, применяем его
     if (bundle_id && bundle_id[0] != '\0') {
         args.push_back("-b");
         args.push_back(bundle_id);
