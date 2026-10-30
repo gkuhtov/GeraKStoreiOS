@@ -58,24 +58,76 @@ public final class InstallDispatcher {
             ipaFileName: ipaFileName
         )
 
-        guard let xmlData = xml.data(using: .utf8) else {
-            completion(false)
-            return
-        }
+        uploadManifest(xml: xml) { manifestHttpsUrl in
+            guard let httpsUrl = manifestHttpsUrl,
+                  let encodedUrl = httpsUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                  let itmsUrl = URL(string: "itms-services://?action=download-manifest&url=\(encodedUrl)") else {
+                completion(false)
+                return
+            }
 
-        let base64String = xmlData.base64EncodedString()
-        let manifestDataUrl = "data:text/xml;charset=utf-8;base64,\(base64String)"
-
-        guard let encodedManifestUrl = manifestDataUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let itmsUrl = URL(string: "itms-services://?action=download-manifest&url=\(encodedManifestUrl)") else {
-            completion(false)
-            return
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            UIApplication.shared.open(itmsUrl, options: [:]) { success in
-                completion(success)
+            DispatchQueue.main.async {
+                UIApplication.shared.open(itmsUrl, options: [:]) { opened in
+                    completion(opened)
+                }
             }
         }
+    }
+
+    private func uploadManifest(xml: String, completion: @escaping (String?) -> Void) {
+        guard let postData = xml.data(using: .utf8),
+              let primaryServiceUrl = URL(string: "https://paste.rs/") else {
+            completion(nil)
+            return
+        }
+
+        var request = URLRequest(url: primaryServiceUrl, timeoutInterval: 8)
+        request.httpMethod = "POST"
+        request.httpBody = postData
+        request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let httpRes = response as? HTTPURLResponse, (200...299).contains(httpRes.statusCode),
+               let data = data,
+               let urlString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               urlString.hasPrefix("https://") {
+                completion(urlString)
+            } else {
+                self.uploadManifestFallback(xml: xml, completion: completion)
+            }
+        }.resume()
+    }
+
+    private func uploadManifestFallback(xml: String, completion: @escaping (String?) -> Void) {
+        guard let serviceUrl = URL(string: "https://dpaste.org/api/") else {
+            completion(nil)
+            return
+        }
+
+        var request = URLRequest(url: serviceUrl, timeoutInterval: 8)
+        request.httpMethod = "POST"
+
+        let boundary = "Boundary-\(UUID().uuidString)"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"format\"\r\n\r\nurl\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"content\"\r\n\r\n\(xml)\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"expiry_days\"\r\n\r\n1\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let httpRes = response as? HTTPURLResponse, (200...299).contains(httpRes.statusCode),
+               let data = data,
+               let urlString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               urlString.hasPrefix("http") {
+                let cleanUrl = urlString.replacingOccurrences(of: "\"", with: "")
+                let rawUrl = cleanUrl.hasSuffix("/raw") ? cleanUrl : "\(cleanUrl)/raw"
+                completion(rawUrl)
+            } else {
+                completion(nil)
+            }
+        }.resume()
     }
 }
