@@ -1,6 +1,5 @@
 import Foundation
 
-// Прямой импорт C-символа моста zsign
 @_silgen_name("run_zsign_direct")
 func run_zsign_direct(
     _ ipa_path: UnsafePointer<CChar>?,
@@ -9,22 +8,24 @@ func run_zsign_direct(
     _ provision_path: UnsafePointer<CChar>?,
     _ output_path: UnsafePointer<CChar>?,
     _ bundle_id: UnsafePointer<CChar>?,
-    _ display_name: UnsafePointer<CChar>?
+    _ display_name: UnsafePointer<CChar>?,
+    _ error_log: UnsafeMutablePointer<CChar>?,
+    _ max_log_len: Int32
 ) -> Int32
 
 public enum SigningError: LocalizedError {
     case missingCertificate
     case missingProvisioningProfile
-    case executionFailed(Int32)
+    case executionFailed(String)
 
     public var errorDescription: String? {
         switch self {
         case .missingCertificate:
-            return "Файл сертификата (.p12) не найден. Добавьте его в Настройках."
+            return "Файл сертификата (.p12) не найден в Настройках."
         case .missingProvisioningProfile:
-            return "Профиль (.mobileprovision) не найден. Добавьте его в Настройках."
-        case .executionFailed(let code):
-            return "Ошибка подписи бинарника zsign (код: \(code)). Проверьте пароль или валидность .p12"
+            return "Профиль (.mobileprovision) не найден в Настройках."
+        case .executionFailed(let details):
+            return "Сбой zsign: \(details)"
         }
     }
 }
@@ -56,7 +57,7 @@ public final class IPASigningEngine {
                 return
             }
 
-            progress(0.2, "Подготовка структуры...")
+            progress(0.2, "Подготовка...")
 
             let outputIpaName = "signed_\(ipaUrl.lastPathComponent)"
             let outputIpaUrl = PathConfig.getDirectory(PathConfig.signedAppsFolder).appendingPathComponent(outputIpaName)
@@ -65,9 +66,12 @@ public final class IPASigningEngine {
                 try? fileManager.removeItem(at: outputIpaUrl)
             }
 
+            // Читаем пароль (по умолчанию пустой или "1", если не задан)
             let password = UserDefaults.standard.string(forKey: "cert_password") ?? ""
 
-            progress(0.4, "Подпись пакета в памяти...")
+            progress(0.4, "Подпись пакета...")
+
+            var logBuffer = [CChar](repeating: 0, count: 4096)
 
             let result = ipaUrl.path.withCString { ipaC in
                 p12Path.path.withCString { p12C in
@@ -79,7 +83,17 @@ public final class IPASigningEngine {
 
                                 return bIdC.withOptionalCString { bPtr in
                                     dNameC.withOptionalCString { dPtr in
-                                        run_zsign_direct(ipaC, p12C, passC, provC, outC, bPtr, dPtr)
+                                        run_zsign_direct(
+                                            ipaC,
+                                            p12C,
+                                            passC,
+                                            provC,
+                                            outC,
+                                            bPtr,
+                                            dPtr,
+                                            &logBuffer,
+                                            Int32(logBuffer.count)
+                                        )
                                     }
                                 }
                             }
@@ -88,11 +102,14 @@ public final class IPASigningEngine {
                 }
             }
 
+            let logString = String(cString: logBuffer).trimmingCharacters(in: .whitespacesAndNewlines)
+
             if result == 0 && fileManager.fileExists(atPath: outputIpaUrl.path) {
                 progress(1.0, "Пакет успешно подписан")
                 completion(.success(outputIpaUrl))
             } else {
-                completion(.failure(SigningError.executionFailed(result)))
+                let errorMsg = logString.isEmpty ? "Код возврата: \(result)" : logString
+                completion(.failure(SigningError.executionFailed(errorMsg)))
             }
         }
     }

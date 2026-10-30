@@ -1,9 +1,10 @@
 #include "zsign_bridge.h"
 #include <vector>
 #include <string>
+#include <sstream>
 #include <iostream>
+#include <cstring>
 
-// Объявление оригинальной функции zsign main/entrypoint
 extern int zsign_main(int argc, char* argv[]);
 
 int run_zsign_direct(
@@ -13,7 +14,9 @@ int run_zsign_direct(
     const char* provision_path,
     const char* output_path,
     const char* bundle_id,
-    const char* display_name
+    const char* display_name,
+    char* error_log,
+    int max_log_len
 ) {
     std::vector<std::string> args = {"zsign"};
 
@@ -22,10 +25,9 @@ int run_zsign_direct(
         args.push_back(p12_path);
     }
 
-    if (password && password[0] != '\0') {
-        args.push_back("-p");
-        args.push_back(password);
-    }
+    // Всегда передаем пароль (даже если он пустой "")
+    args.push_back("-p");
+    args.push_back(password ? password : "");
 
     if (provision_path && provision_path[0] != '\0') {
         args.push_back("-m");
@@ -57,9 +59,30 @@ int run_zsign_direct(
     }
     c_args.push_back(nullptr);
 
+    // Перехватываем cout и cerr
+    std::stringstream buffer;
+    std::streambuf* old_cout = std::cout.rdbuf(buffer.rdbuf());
+    std::streambuf* old_cerr = std::cerr.rdbuf(buffer.rdbuf());
+
+    int result = -1;
     try {
-        return zsign_main(static_cast<int>(c_args.size() - 1), c_args.data());
+        result = zsign_main(static_cast<int>(c_args.size() - 1), c_args.data());
+    } catch (const std::exception& e) {
+        buffer << "\nException: " << e.what();
+        result = -1;
     } catch (...) {
-        return -1;
+        buffer << "\nUnknown C++ exception";
+        result = -1;
     }
+
+    std::cout.rdbuf(old_cout);
+    std::cerr.rdbuf(old_cerr);
+
+    if (error_log && max_log_len > 0) {
+        std::string log_str = buffer.str();
+        strncpy(error_log, log_str.c_str(), max_log_len - 1);
+        error_log[max_log_len - 1] = '\0';
+    }
+
+    return result;
 }

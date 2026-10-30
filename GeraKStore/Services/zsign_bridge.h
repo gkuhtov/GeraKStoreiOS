@@ -12,7 +12,9 @@ int run_zsign_direct(
     const char* provision_path,
     const char* output_path,
     const char* bundle_id,
-    const char* display_name
+    const char* display_name,
+    char* error_log,
+    int max_log_len
 );
 
 #ifdef __cplusplus
