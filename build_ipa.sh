@@ -78,31 +78,29 @@ else
     OPENSSL_LIB=$(find openssl.xcframework/ios-arm64 -name "libcrypto.a" -o -name "OpenSSL" 2>/dev/null | head -n 1)
 fi
 
-echo "==> Компиляция C-исходников (minizip)..."
+echo "==> Компиляция C/C++ исходников zsign..."
 mkdir -p build/obj
-clang -O3 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
-    -I zsign_src -I "$OPENSSL_INCLUDE" \
-    -c zsign_src/zip.c -o build/obj/zip.o
-clang -O3 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
-    -I zsign_src -I "$OPENSSL_INCLUDE" \
-    -c zsign_src/ioapi.c -o build/obj/ioapi.o
 
-echo "==> Компиляция C++ исходников zsign..."
-clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
-    -I zsign_src -I "$OPENSSL_INCLUDE" \
-    -c zsign_src/zsign.cpp -o build/obj/zsign.o
-clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
-    -I zsign_src -I "$OPENSSL_INCLUDE" \
-    -c zsign_src/signing.cpp -o build/obj/signing.o
-clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
-    -I zsign_src -I "$OPENSSL_INCLUDE" \
-    -c zsign_src/bundle.cpp -o build/obj/bundle.o
-clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
-    -I zsign_src -I "$OPENSSL_INCLUDE" \
-    -c zsign_src/macho.cpp -o build/obj/macho.o
-clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
-    -I zsign_src -I "$OPENSSL_INCLUDE" \
-    -c zsign_src/fs.cpp -o build/obj/fs.o
+# Компилируем все существующие C файлы (если есть)
+for c_file in $(find zsign_src -name "*.c" 2>/dev/null); do
+    base=$(basename "$c_file" .c)
+    echo "Компиляция C: $c_file"
+    clang -O3 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+        -I zsign_src -I "$OPENSSL_INCLUDE" \
+        -c "$c_file" -o "build/obj/${base}.o"
+done
+
+# Компилируем все CPP файлы zsign (исключая standalone main.cpp, если он есть)
+for cpp_file in $(find zsign_src -name "*.cpp" 2>/dev/null); do
+    base=$(basename "$cpp_file" .cpp)
+    if [ "$base" == "main" ]; then continue; fi
+    echo "Компиляция CPP: $cpp_file"
+    clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+        -I zsign_src -I "$OPENSSL_INCLUDE" \
+        -c "$cpp_file" -o "build/obj/${base}.o"
+done
+
+# Компилируем мост zsign_bridge.cpp
 clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
     -I zsign_src -I "$OPENSSL_INCLUDE" \
     -c GeraKStore/Services/zsign_bridge.cpp -o build/obj/zsign_bridge.o
