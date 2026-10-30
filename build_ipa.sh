@@ -93,7 +93,7 @@ done
 # Компилируем все CPP файлы zsign (исключая standalone main.cpp, если он есть)
 for cpp_file in $(find zsign_src -maxdepth 1 -name "*.cpp" 2>/dev/null); do
     base=$(basename "$cpp_file" .cpp)
-    if [ "$base" == "main" ]; then continue; fi
+    # main.cpp включен для zsign_main
     echo "Компиляция CPP: $cpp_file"
     clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=18.0 \
         -I zsign_src -I "$OPENSSL_INCLUDE" \
@@ -118,7 +118,7 @@ swiftc -O -sdk "$SDK_PATH" -target arm64-apple-ios18.0 \
     $SWIFT_FILES \
     build/obj/*.o \
     "$OPENSSL_LIB" \
-    -lz -framework Foundation -framework UIKit -framework SwiftUI -framework Security -framework Network \
+    -lc++ -lz -framework Foundation -framework UIKit -framework SwiftUI -framework Security -framework Network -framework ActivityKit \
     -o "$APP_BUNDLE/$APP_NAME"
 
 echo "==> Автоматическая генерация универсального Info.plist для G-Box..."

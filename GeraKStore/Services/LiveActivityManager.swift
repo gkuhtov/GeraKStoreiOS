@@ -6,21 +6,17 @@ public final class LiveActivityManager {
 
     private init() {}
 
-    public func startActivity(appName: String, iconUrl: String) {
-        guard #available(iOS 16.1, *) else { return }
+    public func startLiveActivity(appName: String, iconUrl: String) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         let attributes = InstallActivityAttributes(appName: appName, iconUrl: iconUrl)
-        let initialContentState = InstallActivityAttributes.ContentState(
-            progress: 0.0,
-            statusText: "Подготовка к загрузке...",
-            stage: "Инициализация"
-        )
+        let initialContentState = InstallActivityAttributes.ContentState(progress: 0.0, statusMessage: "Подготовка...")
 
         do {
+            let content = ActivityContent(state: initialContentState, staleDate: nil)
             _ = try Activity<InstallActivityAttributes>.request(
                 attributes: attributes,
-                contentState: initialContentState,
+                content: content,
                 pushType: nil
             )
         } catch {
@@ -28,25 +24,28 @@ public final class LiveActivityManager {
         }
     }
 
-    public func update(progress: Float, status: String, stage: String) {
-        guard #available(iOS 16.1, *) else { return }
+    public func updateLiveActivity(progress: Double, statusMessage: String) {
         Task {
             let updatedState = InstallActivityAttributes.ContentState(
                 progress: progress,
-                statusText: status,
-                stage: stage
+                statusMessage: statusMessage
             )
+            let content = ActivityContent(state: updatedState, staleDate: nil)
             for activity in Activity<InstallActivityAttributes>.activities {
-                await activity.update(using: updatedState)
+                await activity.update(content)
             }
         }
     }
 
-    public func end() {
-        guard #available(iOS 16.1, *) else { return }
+    public func endLiveActivity(statusMessage: String) {
         Task {
+            let finalState = InstallActivityAttributes.ContentState(
+                progress: 1.0,
+                statusMessage: statusMessage
+            )
+            let content = ActivityContent(state: finalState, staleDate: nil)
             for activity in Activity<InstallActivityAttributes>.activities {
-                await activity.end(dismissalPolicy: .immediate)
+                await activity.end(content, dismissalPolicy: .immediate)
             }
         }
     }
