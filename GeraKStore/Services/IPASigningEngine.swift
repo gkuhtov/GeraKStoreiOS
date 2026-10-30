@@ -1,21 +1,30 @@
 import Foundation
 
+// Прямой импорт C-символа моста zsign
+@_silgen_name("run_zsign_direct")
+func run_zsign_direct(
+    _ ipa_path: UnsafePointer<CChar>?,
+    _ p12_path: UnsafePointer<CChar>?,
+    _ password: UnsafePointer<CChar>?,
+    _ provision_path: UnsafePointer<CChar>?,
+    _ output_path: UnsafePointer<CChar>?,
+    _ bundle_id: UnsafePointer<CChar>?,
+    _ display_name: UnsafePointer<CChar>?
+) -> Int32
+
 public enum SigningError: LocalizedError {
     case missingCertificate
     case missingProvisioningProfile
-    case zsignBinaryNotFound
-    case executionFailed(String)
+    case executionFailed(Int32)
 
     public var errorDescription: String? {
         switch self {
         case .missingCertificate:
-            return "Сертификат (.p12) не найден. Добавьте его в Настройках."
+            return "Файл сертификата (.p12) не найден. Добавьте его в Настройках."
         case .missingProvisioningProfile:
             return "Профиль (.mobileprovision) не найден. Добавьте его в Настройках."
-        case .zsignBinaryNotFound:
-            return "Движок zsign не найден в бандле."
-        case .executionFailed(let msg):
-            return "Ошибка подписи: \(msg)"
+        case .executionFailed(let code):
+            return "Ошибка подписи бинарника zsign (код: \(code)). Проверьте пароль или валидность .p12"
         }
     }
 }
@@ -47,14 +56,7 @@ public final class IPASigningEngine {
                 return
             }
 
-            guard let zsignBinary = Bundle.main.path(forResource: "zsign", ofType: nil) ?? 
-                  Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("zsign").path,
-                  fileManager.fileExists(atPath: zsignBinary) else {
-                completion(.failure(SigningError.zsignBinaryNotFound))
-                return
-            }
-
-            progress(0.2, "Подготовка к подписи...")
+            progress(0.2, "Подготовка структуры...")
 
             let outputIpaName = "signed_\(ipaUrl.lastPathComponent)"
             let outputIpaUrl = PathConfig.getDirectory(PathConfig.signedAppsFolder).appendingPathComponent(outputIpaName)
@@ -63,55 +65,47 @@ public final class IPASigningEngine {
                 try? fileManager.removeItem(at: outputIpaUrl)
             }
 
-            var arguments: [String] = [
-                zsignBinary,
-                "-k", p12Path.path,
-                "-m", provisionPath.path,
-                "-o", outputIpaUrl.path
-            ]
-
-            // Пароль от p12 из настроек
             let password = UserDefaults.standard.string(forKey: "cert_password") ?? ""
-            if !password.isEmpty {
-                arguments.append(contentsOf: ["-p", password])
+
+            progress(0.4, "Подпись пакета в памяти...")
+
+            let result = ipaUrl.path.withCString { ipaC in
+                p12Path.path.withCString { p12C in
+                    password.withCString { passC in
+                        provisionPath.path.withCString { provC in
+                            outputIpaUrl.path.withCString { outC in
+                                let bIdC = newBundleId?.cString(using: .utf8)
+                                let dNameC = customDisplayName?.cString(using: .utf8)
+
+                                return bIdC.withOptionalCString { bPtr in
+                                    dNameC.withOptionalCString { dPtr in
+                                        run_zsign_direct(ipaC, p12C, passC, provC, outC, bPtr, dPtr)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            if let bundleId = newBundleId, !bundleId.isEmpty {
-                arguments.append(contentsOf: ["-b", bundleId])
-            }
-
-            if let displayName = customDisplayName, !displayName.isEmpty {
-                arguments.append(contentsOf: ["-n", displayName])
-            }
-
-            arguments.append(ipaUrl.path)
-
-            progress(0.5, "Выполнение zsign...")
-
-            let success = self.runExecutable(args: arguments)
-            if success && fileManager.fileExists(atPath: outputIpaUrl.path) {
+            if result == 0 && fileManager.fileExists(atPath: outputIpaUrl.path) {
                 progress(1.0, "Пакет успешно подписан")
                 completion(.success(outputIpaUrl))
             } else {
-                completion(.failure(SigningError.executionFailed("Сбой выполнения zsign")))
+                completion(.failure(SigningError.executionFailed(result)))
             }
         }
     }
+}
 
-    private func runExecutable(args: [String]) -> Bool {
-        guard let binary = args.first else { return false }
-        
-        var pid: pid_t = 0
-        let cArgs = args.map { strdup($0) } + [nil]
-        defer {
-            for ptr in cArgs where ptr != nil { free(ptr) }
+private extension Optional where Wrapped == [CChar] {
+    func withOptionalCString<R>(_ body: (UnsafePointer<CChar>?) -> R) -> R {
+        if let self = self {
+            return self.withUnsafeBufferPointer { ptr in
+                body(ptr.baseAddress)
+            }
+        } else {
+            return body(nil)
         }
-
-        let result = posix_spawn(&pid, binary, nil, nil, cArgs, nil)
-        guard result == 0 else { return false }
-
-        var status: Int32 = 0
-        waitpid(pid, &status, 0)
-        return status == 0
     }
 }

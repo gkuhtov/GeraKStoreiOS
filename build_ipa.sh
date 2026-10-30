@@ -3,51 +3,51 @@ set -e
 
 echo "==> Подготовка каталогов..."
 rm -rf Payload build GeraKStore.ipa
-mkdir -p Payload/GeraKStore.app
+mkdir -p Payload/GeraKStore.app build/obj
 
 echo "==> Определение SDK iOS..."
 SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
 TARGET="arm64-apple-ios16.1"
 
-echo "==> Подготовка zsign..."
+echo "==> Подготовка исходников zsign..."
 rm -rf zsign_src
 git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
 
-# Находим все .cpp файлы внутри репозитория zsign
-ZSIGN_CPP=$(find zsign_src -name "*.cpp")
+# Заменяем имя точки входа main -> zsign_main, чтобы не конфликтовать со SwiftUI @main
+sed -i '' 's/int main(/int zsign_main(/g' zsign_src/main.cpp 2>/dev/null || sed -i 's/int main(/int zsign_main(/g' zsign_src/main.cpp
 
+# Получаем OpenSSL
 brew install openssl@3 || true
 OPENSSL_DIR=$(brew --prefix openssl@3)
 
-echo "Компиляция zsign под target $TARGET..."
+echo "==> Компиляция C++ компонентов zsign в статические объектники..."
 xcrun --sdk iphoneos clang++ \
     -target $TARGET \
     -isysroot $SDK_PATH \
     -O3 -std=c++11 \
     -I$OPENSSL_DIR/include \
-    $ZSIGN_CPP \
-    -L$OPENSSL_DIR/lib -lcrypto \
-    -o Payload/GeraKStore.app/zsign || {
-        echo "Фоллбэк: создание исполняемого файла zsign..."
-        touch Payload/GeraKStore.app/zsign
-    }
+    -c zsign_src/*.cpp GeraKStore/Services/zsign_bridge.cpp
 
-chmod +x Payload/GeraKStore.app/zsign || true
+mv *.o build/obj/
 
-echo "==> Поиск исходников приложения..."
+echo "==> Поиск Swift-исходников..."
 SWIFT_FILES=$(find GeraKStore -name "*.swift" ! -name "GeraKStoreWidgetsBundle.swift" ! -name "InstallActivityWidget.swift")
 
-echo "==> Компиляция Swift-исходников в бинарник Mach-O..."
+echo "==> Монолитная линковка GeraKStore..."
 xcrun --sdk iphoneos swiftc \
     -target $TARGET \
     -sdk $SDK_PATH \
     -O \
     -parse-as-library \
     -emit-executable \
+    -I GeraKStore/Services \
+    -Xlinker build/obj/*.o \
+    -Xlinker -L$OPENSSL_DIR/lib \
+    -Xlinker -lcrypto \
     -o Payload/GeraKStore.app/GeraKStore \
     $SWIFT_FILES
 
-echo "==> Создание Info.plist с поддержкой Background Modes..."
+echo "==> Создание Info.plist..."
 cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -122,6 +122,6 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
 </plist>
 PLIST
 
-echo "==> Упаковка в GeraKStore.ipa..."
+echo "==> Упаковка GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Готово!"
+echo "==> Успешно собран монолитный IPA с прямым вызовом zsign!"
