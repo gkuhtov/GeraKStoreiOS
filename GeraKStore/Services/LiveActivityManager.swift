@@ -10,7 +10,11 @@ public final class LiveActivityManager {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         let attributes = InstallActivityAttributes(appName: appName, iconUrl: iconUrl)
-        let initialContentState = InstallActivityAttributes.ContentState(progress: 0.0, statusMessage: "Подготовка...")
+        let initialContentState = InstallActivityAttributes.ContentState(
+            progress: 0.0,
+            statusText: "Подготовка...",
+            stage: "downloading"
+        )
 
         do {
             let content = ActivityContent(state: initialContentState, staleDate: nil)
@@ -24,11 +28,12 @@ public final class LiveActivityManager {
         }
     }
 
-    public func updateLiveActivity(progress: Double, statusMessage: String) {
+    public func updateLiveActivity(progress: Double, statusMessage: String, stage: String = "installing") {
         Task {
             let updatedState = InstallActivityAttributes.ContentState(
-                progress: progress,
-                statusMessage: statusMessage
+                progress: Float(progress),
+                statusText: statusMessage,
+                stage: stage
             )
             let content = ActivityContent(state: updatedState, staleDate: nil)
             for activity in Activity<InstallActivityAttributes>.activities {
@@ -41,7 +46,8 @@ public final class LiveActivityManager {
         Task {
             let finalState = InstallActivityAttributes.ContentState(
                 progress: 1.0,
-                statusMessage: statusMessage
+                statusText: statusMessage,
+                stage: "finished"
             )
             let content = ActivityContent(state: finalState, staleDate: nil)
             for activity in Activity<InstallActivityAttributes>.activities {

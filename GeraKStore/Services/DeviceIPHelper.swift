@@ -1,17 +1,17 @@
 import Foundation
 
-public enum DeviceIPHelper {
+public struct DeviceIPHelper {
     public static func getLocalIPAddress() -> String {
         var wifiAddress: String?
-        var cellAddress: String?
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
 
-        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else {
-            return "127.0.0.1"
-        }
+        guard getifaddrs(&ifaddr) == 0 else { return "127.0.0.1" }
+        defer { freeifaddrs(ifaddr) }
 
-        for ptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
-            let interface = ptr.pointee
+        var ptr = ifaddr
+        while ptr != nil {
+            defer { ptr = ptr?.pointee.ifa_next }
+            guard let interface = ptr?.pointee else { continue }
             let addrFamily = interface.ifa_addr.pointee.sa_family
 
             if addrFamily == UInt8(AF_INET) {
@@ -23,25 +23,16 @@ public enum DeviceIPHelper {
                     &hostname,
                     socklen_t(hostname.count),
                     nil,
-                    0,
+                    socklen_t(0),
                     NI_NUMERICHOST
                 )
-                let ip = String(cString: hostname)
 
-                if name == "en0" && !ip.isEmpty && ip != "127.0.0.1" {
-                    wifiAddress = ip
-                } else if name.hasPrefix("pdp_ip") && !ip.isEmpty && ip != "127.0.0.1" {
-                    cellAddress = ip
+                if name == "en0" {
+                    wifiAddress = String(cString: hostname)
                 }
             }
         }
-        freeifaddrs(ifaddr)
 
-        // 1. Если подключен Wi-Fi — используем его
-        if let wifi = wifiAddress {
-            return wifi
-        }
-        // 2. Если мобильная сеть — возвращаем 127.0.0.1 (локальный демон installd обращается к петле)
-        return "127.0.0.1"
+        return wifiAddress ?? "127.0.0.1"
     }
 }
