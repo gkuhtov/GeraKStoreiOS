@@ -82,7 +82,7 @@ echo "==> Компиляция C/C++ исходников zsign..."
 mkdir -p build/obj
 
 # Компилируем все существующие C файлы (если есть)
-for c_file in $(find zsign_src -name "*.c" 2>/dev/null); do
+for c_file in $(find zsign_src -maxdepth 1 -name "*.c" 2>/dev/null); do
     base=$(basename "$c_file" .c)
     echo "Компиляция C: $c_file"
     clang -O3 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
@@ -91,7 +91,7 @@ for c_file in $(find zsign_src -name "*.c" 2>/dev/null); do
 done
 
 # Компилируем все CPP файлы zsign (исключая standalone main.cpp, если он есть)
-for cpp_file in $(find zsign_src -name "*.cpp" 2>/dev/null); do
+for cpp_file in $(find zsign_src -maxdepth 1 -name "*.cpp" 2>/dev/null); do
     base=$(basename "$cpp_file" .cpp)
     if [ "$base" == "main" ]; then continue; fi
     echo "Компиляция CPP: $cpp_file"
