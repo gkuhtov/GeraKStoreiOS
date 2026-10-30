@@ -13,59 +13,64 @@ echo "==> Подготовка исходников zsign..."
 rm -rf zsign_src
 git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
 
-# Заменяем точку входа main -> zsign_main в zsign.cpp
+# Заменяем точку входа main -> zsign_main
 python3 -c "
 import os
-
-target_file = None
-for root, _, files in os.walk('zsign_src/src'):
-    for f in files:
-        if f in ['zsign.cpp', 'main.cpp']:
-            target_file = os.path.join(root, f)
-            break
-
-if target_file:
-    with open(target_file, 'r') as f:
+target = 'zsign_src/src/zsign.cpp'
+if os.path.exists(target):
+    with open(target, 'r') as f:
         content = f.read()
     content = content.replace('int main(', 'int zsign_main(')
-    with open(target_file, 'w') as f:
+    with open(target, 'w') as f:
         f.write(content)
-    print(f'Точка входа изменена в: {target_file}')
+    print('Точка входа успешно заменена на zsign_main')
 "
 
-echo "==> Загрузка OpenSSL.xcframework..."
+echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
 if [ ! -d "build/OpenSSL.xcframework" ]; then
-    curl -sL "https://github.com/krzyzanowskim/OpenSSL/releases/download/1.1.2301/OpenSSL.xcframework.zip" -o build/openssl.zip
-    unzip -q build/openssl.zip -d build/
+    # Скачиваем официальную сборку OpenSSL 3.3.x для Apple платформ
+    curl -sL "https://github.com/krzyzanowskim/OpenSSL/releases/download/3.3.2000/OpenSSL.xcframework.zip" -o build/openssl3.zip
+    unzip -q build/openssl3.zip -d build/
 fi
 
 OPENSSL_FRAMEWORK_DIR="build/OpenSSL.xcframework/ios-arm64"
 OPENSSL_HEADERS="$OPENSSL_FRAMEWORK_DIR/OpenSSL.framework/Headers"
 
-echo "==> Выборка исходников zsign для iOS..."
-# Берём C/C++ файлы строго из src, игнорируя каталоги Windows/VS
-ZSIGN_CPP=$(find zsign_src/src -name "*.cpp" ! -path "*/windows/*")
-ZSIGN_C=$(find zsign_src/src -name "*.c" ! -path "*/windows/*" 2>/dev/null || true)
+echo "==> Компиляция C-исходников (minizip)..."
+# Берем только нужные для POSIX файлы minizip, исключая iowin32 и mztools
+MINIZIP_C="zsign_src/src/third-party/minizip/ioapi.c zsign_src/src/third-party/minizip/zip.c zsign_src/src/third-party/minizip/unzip.c"
 
-echo "==> Компиляция C++ компонентов zsign..."
+xcrun --sdk iphoneos clang \
+    -target $TARGET \
+    -isysroot $SDK_PATH \
+    -O3 \
+    -Izsign_src/src \
+    -Izsign_src/src/third-party \
+    -c $MINIZIP_C
+
+mv *.o build/obj/
+
+echo "==> Компиляция C++ исходников zsign..."
+ZSIGN_CPP=$(find zsign_src/src -name "*.cpp" ! -path "*/windows/*")
+
 xcrun --sdk iphoneos clang++ \
     -target $TARGET \
     -isysroot $SDK_PATH \
-    -O3 -std=c++11 \
+    -O3 -std=c++17 \
     -I$OPENSSL_HEADERS \
     -Izsign_src/src \
     -Izsign_src/src/common \
     -Izsign_src/src/third-party \
     -F $OPENSSL_FRAMEWORK_DIR \
     -framework OpenSSL \
-    -c $ZSIGN_CPP $ZSIGN_C GeraKStore/Services/zsign_bridge.cpp
+    -c $ZSIGN_CPP GeraKStore/Services/zsign_bridge.cpp
 
 mv *.o build/obj/
 
 echo "==> Поиск Swift-исходников..."
 SWIFT_FILES=$(find GeraKStore -name "*.swift" ! -name "GeraKStoreWidgetsBundle.swift" ! -name "InstallActivityWidget.swift")
 
-echo "==> Монолитная линковка GeraKStore..."
+echo "==> Монолитная сборка GeraKStore..."
 xcrun --sdk iphoneos swiftc \
     -target $TARGET \
     -sdk $SDK_PATH \
@@ -74,12 +79,13 @@ xcrun --sdk iphoneos swiftc \
     -emit-executable \
     -F $OPENSSL_FRAMEWORK_DIR \
     -framework OpenSSL \
+    -Xlinker -lz \
     -Xlinker build/obj/*.o \
     -Xlinker -rpath -Xlinker @executable_path/Frameworks \
     -o Payload/GeraKStore.app/GeraKStore \
     $SWIFT_FILES
 
-echo "==> Встраивание фреймворка OpenSSL в бандл..."
+echo "==> Встраивание OpenSSL фреймворка в бандл..."
 mkdir -p Payload/GeraKStore.app/Frameworks
 cp -R "$OPENSSL_FRAMEWORK_DIR/OpenSSL.framework" Payload/GeraKStore.app/Frameworks/
 
@@ -160,4 +166,4 @@ PLIST
 
 echo "==> Упаковка GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Готово! Сформирован монолитный IPA с прямой интеграцией zsign."
+echo "==> Успешно собран монолитный IPA с движком zsign на OpenSSL 3!"
