@@ -44,8 +44,6 @@ def patch_file(filepath, old_str, new_str):
 
 patch_file("zsign_src/signing.cpp", 'StringFormat("/tmp/zsign_%llu",', 'StringFormat("%s/zsign_%llu", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp",')
 patch_file("zsign_src/fs.cpp", 'StringFormat("/tmp/zsign_folder_%llu",', 'StringFormat("%s/zsign_folder_%llu", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp",')
-patch_file("zsign_src/main.cpp", 'int main(int argc, char *argv[])', 'int zsign_main(int argc, char *argv[])')
-patch_file("zsign_src/main.cpp", 'int main(int argc, char **argv)', 'int zsign_main(int argc, char **argv)')
 PYEOF
 
 echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
@@ -80,10 +78,10 @@ else
     OPENSSL_LIB=$(find openssl.xcframework/ios-arm64 -name "libcrypto.a" -o -name "OpenSSL" 2>/dev/null | head -n 1)
 fi
 
-# Патчим main.cpp в zsign_main
-if [ -f "zsign_src/main.cpp" ]; then
-    sed -i '' 's/int main(/int zsign_main(/g' zsign_src/main.cpp 2>/dev/null || sed -i 's/int main(/int zsign_main(/g' zsign_src/main.cpp
-    echo "Точка входа zsign_src/main.cpp переименована в zsign_main"
+# Патчим точку входа zsign.cpp в zsign_main
+if [ -f "zsign_src/zsign.cpp" ]; then
+    sed -i '' 's/int main(/int zsign_main(/g' zsign_src/zsign.cpp 2>/dev/null || sed -i 's/int main(/int zsign_main(/g' zsign_src/zsign.cpp
+    echo "Точка входа zsign_src/zsign.cpp переименована в zsign_main"
 fi
 
 echo "==> Компиляция C/C++ исходников zsign..."
@@ -112,9 +110,6 @@ done
 clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=18.0 \
     -I zsign_src -I "$OPENSSL_INCLUDE" \
     -c GeraKStore/Services/zsign_bridge.cpp -o build/obj/zsign_bridge.o
-clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=18.0 \
-    -I zsign_src -I "$OPENSSL_INCLUDE" \
-    -c zsign_src/main.cpp -o build/obj/zsign_main.o
 
 echo "==> Поиск Swift-исходников..."
 SWIFT_FILES=$(find GeraKStore -name "*.swift")
