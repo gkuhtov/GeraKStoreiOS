@@ -48,7 +48,16 @@ PYEOF
 
 echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
 if [ ! -d "openssl.xcframework" ]; then
-    curl -sL "https://github.com/passepartoutvpn/openssl-apple/releases/download/3.3.200/openssl.xcframework.zip" -o openssl.zip
+    rm -f openssl.zip
+    OPENSSL_URL="https://github.com/passepartoutvpn/openssl-apple/releases/download/3.3.201/openssl.xcframework.zip"
+    OPENSSL_FALLBACK="https://github.com/passepartoutvpn/openssl-apple/releases/download/3.2.100/openssl.xcframework.zip"
+    
+    echo "Загрузка openssl.xcframework..."
+    if ! curl -fSL --retry 3 --retry-delay 2 "$OPENSSL_URL" -o openssl.zip; then
+        echo "Переключение на резервный источник OpenSSL..."
+        curl -fSL --retry 3 --retry-delay 2 "$OPENSSL_FALLBACK" -o openssl.zip
+    fi
+
     unzip -q openssl.zip
     rm -f openssl.zip
 fi

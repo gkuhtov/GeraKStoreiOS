@@ -1,76 +1,109 @@
 import Foundation
 
-public final class DownloadManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
+public final class DownloadManager: NSObject, ObservableObject, URLSessionDownloadDelegate, URLSessionTaskDelegate {
     public static let shared = DownloadManager()
 
     @Published public var downloadProgress: Float = 0.0
     public var progressHandler: ((Float) -> Void)?
     private var completionHandler: ((URL?) -> Void)?
 
-    private var downloadSession: URLSession!
+    private var currentTask: URLSessionDownloadTask?
+    private lazy var downloadSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.allowsCellularAccess = true
+        config.allowsExpensiveNetworkAccess = true
+        config.allowsConstrainedNetworkAccess = true
+        config.waitsForConnectivity = false
+        config.timeoutIntervalForRequest = 45.0
+        config.timeoutIntervalForResource = 1200.0 // 20 минут на большие игры
+        return URLSession(configuration: config, delegate: self, delegateQueue: OperationQueue.main)
+    }()
 
     private override init() {
         super.init()
-        let configuration = URLSessionConfiguration.default
-        configuration.allowsCellularAccess = true
-        configuration.allowsExpensiveNetworkAccess = true
-        configuration.allowsConstrainedNetworkAccess = true
-        configuration.waitsForConnectivity = true
-        configuration.timeoutIntervalForRequest = 60.0
-        configuration.timeoutIntervalForResource = 600.0 // 10 минут на выкачивание больших IPA
-        configuration.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 GeraKStore/1.0"
-        ]
-
-        self.downloadSession = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
     }
 
     public func startDownload(from url: URL, completion: @escaping (URL?) -> Void) {
         self.completionHandler = completion
         self.downloadProgress = 0.0
 
+        currentTask?.cancel()
+
         var request = URLRequest(url: url)
-        request.timeoutInterval = 60.0
-        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 GeraKStore/1.0", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 45.0
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
 
         let task = downloadSession.downloadTask(with: request)
+        self.currentTask = task
         task.resume()
     }
 
-    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        if totalBytesExpectedToWrite > 0 {
-            let progress = Float(totalBytesWritten) / Float(totalBytesExpectedToWrite)
-            self.downloadProgress = progress
-            self.progressHandler?(progress)
+    // Сохранение сессии и заголовков при редиректах GitHub -> AWS S3
+    public func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        var redirectedRequest = request
+        redirectedRequest.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+        completionHandler(redirectedRequest)
+    }
+
+    public func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        DispatchQueue.main.async {
+            if totalBytesExpectedToWrite > 0 {
+                let progress = Float(totalBytesWritten) / Float(totalBytesExpectedToWrite)
+                self.downloadProgress = progress
+                self.progressHandler?(progress)
+            } else {
+                self.progressHandler?(0.15)
+            }
         }
     }
 
     public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         if let httpResponse = downloadTask.response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
-            print("Download failed with HTTP status: \(httpResponse.statusCode)")
-            self.completionHandler?(nil)
+            print("Download failed: HTTP \(httpResponse.statusCode)")
+            DispatchQueue.main.async {
+                self.completionHandler?(nil)
+            }
             return
         }
 
         let downloadsFolder = PathConfig.getDirectory(PathConfig.downloadsFolder)
-        let destinationUrl = downloadsFolder.appendingPathComponent(UUID().uuidString + ".ipa")
+        let destinationUrl = downloadsFolder.appendingPathComponent("\(UUID().uuidString).ipa")
 
         do {
             if FileManager.default.fileExists(atPath: destinationUrl.path) {
                 try FileManager.default.removeItem(at: destinationUrl)
             }
             try FileManager.default.moveItem(at: location, to: destinationUrl)
-            self.completionHandler?(destinationUrl)
+            DispatchQueue.main.async {
+                self.completionHandler?(destinationUrl)
+            }
         } catch {
-            print("Ошибка перемещения скачанного файла: \(error)")
-            self.completionHandler?(nil)
+            print("Move failed: \(error)")
+            DispatchQueue.main.async {
+                self.completionHandler?(nil)
+            }
         }
     }
 
     public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error = error {
-            print("Сбой загрузки URLSession: \(error.localizedDescription)")
-            self.completionHandler?(nil)
+            print("Download error: \(error.localizedDescription)")
+            DispatchQueue.main.async {
+                self.completionHandler?(nil)
+            }
         }
     }
 }
