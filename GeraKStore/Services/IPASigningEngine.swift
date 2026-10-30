@@ -16,16 +16,19 @@ func run_zsign_direct(
 public enum SigningError: LocalizedError {
     case missingCertificate
     case missingProvisioningProfile
+    case invalidSourceFile
     case executionFailed(String)
 
     public var errorDescription: String? {
         switch self {
         case .missingCertificate:
-            return "Файл сертификата (.p12) не найден в Настройках."
+            return "Файл сертификата (.p12) не найден. Добавьте его в Настройках."
         case .missingProvisioningProfile:
-            return "Профиль (.mobileprovision) не найден в Настройках."
+            return "Профиль (.mobileprovision) не найден. Добавьте его в Настройках."
+        case .invalidSourceFile:
+            return "Скачанный IPA-файл поврежден или отсутствует."
         case .executionFailed(let details):
-            return "Сбой zsign: \(details)"
+            return details
         }
     }
 }
@@ -56,6 +59,12 @@ public final class IPASigningEngine {
                 completion(.failure(SigningError.missingProvisioningProfile))
                 return
             }
+            guard fileManager.fileExists(atPath: ipaUrl.path),
+                  let attrs = try? fileManager.attributesOfItem(atPath: ipaUrl.path),
+                  (attrs[.size] as? UInt64 ?? 0) > 0 else {
+                completion(.failure(SigningError.invalidSourceFile))
+                return
+            }
 
             progress(0.2, "Подготовка...")
 
@@ -66,12 +75,11 @@ public final class IPASigningEngine {
                 try? fileManager.removeItem(at: outputIpaUrl)
             }
 
-            // Читаем пароль (по умолчанию пустой или "1", если не задан)
             let password = UserDefaults.standard.string(forKey: "cert_password") ?? ""
 
-            progress(0.4, "Подпись пакета...")
+            progress(0.4, "Подпись zsign...")
 
-            var logBuffer = [CChar](repeating: 0, count: 4096)
+            var logBuffer = [CChar](repeating: 0, count: 8192)
 
             let result = ipaUrl.path.withCString { ipaC in
                 p12Path.path.withCString { p12C in
@@ -108,8 +116,8 @@ public final class IPASigningEngine {
                 progress(1.0, "Пакет успешно подписан")
                 completion(.success(outputIpaUrl))
             } else {
-                let errorMsg = logString.isEmpty ? "Код возврата: \(result)" : logString
-                completion(.failure(SigningError.executionFailed(errorMsg)))
+                let errorDetails = logString.isEmpty ? "Код: \(result). Ошибка чтения метаданных IPA." : logString
+                completion(.failure(SigningError.executionFailed(errorDetails)))
             }
         }
     }
