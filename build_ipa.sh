@@ -13,29 +13,36 @@ echo "==> Подготовка исходников zsign..."
 rm -rf zsign_src
 git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
 
+# Точечный патчинг точки входа и каталога временных файлов под iOS Sandbox
 python3 -c "
 import os
 
+# 1. Замена int main на int zsign_main
+zsign_cpp = 'zsign_src/src/zsign.cpp'
+if os.path.exists(zsign_cpp):
+    with open(zsign_cpp, 'r') as f:
+        c = f.read()
+    c = c.replace('int main(', 'int zsign_main(')
+    with open(zsign_cpp, 'w') as f:
+        f.write(c)
+
+# 2. Патчинг fs.cpp для использования TMPDIR вместо жесткого /tmp
 for root, _, files in os.walk('zsign_src/src'):
     for f in files:
-        if f.endswith(('.cpp', '.h')):
+        if f in ['fs.cpp', 'util.cpp', 'signing.cpp']:
             p = os.path.join(root, f)
-            with open(p, 'r', errors='ignore') as file:
+            with open(p, 'r') as file:
                 content = file.read()
-            changed = False
-            if 'int main(' in content and f in ['zsign.cpp', 'main.cpp']:
-                content = content.replace('int main(', 'int zsign_main(')
-                changed = True
-            if '\"/tmp\"' in content:
-                content = content.replace('\"/tmp\"', '(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\")')
-                changed = True
-            if '\"/tmp/' in content:
-                content = content.replace('\"/tmp/', '(std::string(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\") + \"/\"')
-                changed = True
-            if changed:
-                with open(p, 'w') as file:
-                    file.write(content)
-print('Патчинг zsign под iOS Sandbox завершен.')
+            # Заменяем жесткий путь \"/tmp\" на чтение переменной TMPDIR
+            content = content.replace('\"/tmp\"', '(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\")')
+            content = content.replace('\"/tmp/', '(std::string(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\") + \"/')
+            # Исправляем форматные вызовы ZUtil::StringFormatV(\"%s/...\")
+            content = content.replace('\"/tmp/%s\"', '\"%s/%s\"')
+            content = content.replace('\"/tmp/Requirements_%llu.blob\"', '(std::string(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\") + \"/Requirements_%llu.blob\").c_str()')
+            with open(p, 'w') as file:
+                file.write(content)
+
+print('Точечный патчинг zsign завершен.')
 "
 
 echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
@@ -177,4 +184,4 @@ PLIST
 
 echo "==> Упаковка GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Готово!"
+echo "==> Сборка завершена!"
