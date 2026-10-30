@@ -44,6 +44,8 @@ def patch_file(filepath, old_str, new_str):
 
 patch_file("zsign_src/signing.cpp", 'StringFormat("/tmp/zsign_%llu",', 'StringFormat("%s/zsign_%llu", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp",')
 patch_file("zsign_src/fs.cpp", 'StringFormat("/tmp/zsign_folder_%llu",', 'StringFormat("%s/zsign_folder_%llu", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp",')
+patch_file("zsign_src/main.cpp", 'int main(int argc, char *argv[])', 'int zsign_main(int argc, char *argv[])')
+patch_file("zsign_src/main.cpp", 'int main(int argc, char **argv)', 'int zsign_main(int argc, char **argv)')
 PYEOF
 
 echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
