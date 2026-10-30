@@ -16,6 +16,7 @@ public final class OTAServer {
         do {
             let parameters = NWParameters.tcp
             parameters.allowLocalEndpointReuse = true
+            parameters.includePeerToPeer = true
 
             self.listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
 
@@ -23,7 +24,7 @@ public final class OTAServer {
                 switch state {
                 case .ready:
                     self?.isRunning = true
-                    print("OTA HTTP сервер запущен на порту \(self?.port ?? 8080)")
+                    print("OTA сервер активен на всех интерфейсах (порт \(self?.port ?? 8080))")
                 case .failed(let error):
                     print("Ошибка OTA сервера: \(error.localizedDescription)")
                     self?.stop()
@@ -80,7 +81,6 @@ public final class OTAServer {
         let rawPath = parts[1].split(separator: "?").first.map(String.init) ?? parts[1]
         let path = (rawPath as NSString).removingPercentEncoding ?? rawPath
 
-        // Парсинг Range заголовка
         var rangeHeader: String? = nil
         for line in lines {
             if line.lowercased().hasPrefix("range: bytes=") {
@@ -89,7 +89,9 @@ public final class OTAServer {
             }
         }
 
-        if path.hasSuffix(".ipa") {
+        if path.hasSuffix(".plist") {
+            serveFile(name: (path as NSString).lastPathComponent, mime: "text/xml; charset=utf-8", isHead: isHead, range: nil, connection: connection)
+        } else if path.hasSuffix(".ipa") {
             serveFile(name: (path as NSString).lastPathComponent, mime: "application/octet-stream", isHead: isHead, range: rangeHeader, connection: connection)
         } else {
             sendSimpleResponse(status: "404 Not Found", body: nil, connection: connection)

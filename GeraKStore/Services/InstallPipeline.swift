@@ -22,7 +22,7 @@ public final class InstallPipeline: ObservableObject {
         HapticManager.shared.tap()
         BackgroundKeepAlive.shared.activate()
 
-        self.backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "OTA_Install_Serving") { [weak self] in
+        self.backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "OTA_Serving_Process") { [weak self] in
             if let taskId = self?.backgroundTaskId, taskId != .invalid {
                 UIApplication.shared.endBackgroundTask(taskId)
                 self?.backgroundTaskId = .invalid
@@ -73,7 +73,8 @@ public final class InstallPipeline: ObservableObject {
                                     self.progress = 1.0
                                     HapticManager.shared.success()
 
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 60.0) {
+                                    // Удерживаем сервер активным 90 секунд до завершения распаковки системой
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 90.0) {
                                         BackgroundKeepAlive.shared.deactivate()
                                         if self.backgroundTaskId != .invalid {
                                             UIApplication.shared.endBackgroundTask(self.backgroundTaskId)

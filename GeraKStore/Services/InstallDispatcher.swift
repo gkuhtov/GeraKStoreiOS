@@ -60,6 +60,11 @@ public final class InstallDispatcher {
             ipaFileName: ipaFileName
         )
 
+        // Сохраняем локальную копию манифеста на случай прямого обращения
+        let signedDir = PathConfig.getDirectory(PathConfig.signedAppsFolder)
+        let manifestFile = signedDir.appendingPathComponent("manifest.plist")
+        try? xml.write(to: manifestFile, atomically: true, encoding: .utf8)
+
         uploadManifest(xml: xml) { manifestHttpsUrl in
             guard let httpsUrl = manifestHttpsUrl,
                   let encodedUrl = httpsUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
@@ -83,7 +88,7 @@ public final class InstallDispatcher {
             return
         }
 
-        var request = URLRequest(url: primaryServiceUrl, timeoutInterval: 8)
+        var request = URLRequest(url: primaryServiceUrl, timeoutInterval: 7)
         request.httpMethod = "POST"
         request.httpBody = postData
         request.setValue("text/xml; charset=utf-8", forHTTPHeaderField: "Content-Type")
@@ -106,7 +111,7 @@ public final class InstallDispatcher {
             return
         }
 
-        var request = URLRequest(url: serviceUrl, timeoutInterval: 8)
+        var request = URLRequest(url: serviceUrl, timeoutInterval: 7)
         request.httpMethod = "POST"
 
         let boundary = "Boundary-\(UUID().uuidString)"
