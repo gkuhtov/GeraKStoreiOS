@@ -13,11 +13,10 @@ echo "==> Подготовка исходников zsign..."
 rm -rf zsign_src
 git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
 
-# Точечный патчинг точки входа и каталога временных файлов под iOS Sandbox
 python3 -c "
 import os
 
-# 1. Замена int main на int zsign_main
+# 1. Замена int main на int zsign_main в zsign.cpp
 zsign_cpp = 'zsign_src/src/zsign.cpp'
 if os.path.exists(zsign_cpp):
     with open(zsign_cpp, 'r') as f:
@@ -26,23 +25,25 @@ if os.path.exists(zsign_cpp):
     with open(zsign_cpp, 'w') as f:
         f.write(c)
 
-# 2. Патчинг fs.cpp для использования TMPDIR вместо жесткого /tmp
-for root, _, files in os.walk('zsign_src/src'):
-    for f in files:
-        if f in ['fs.cpp', 'util.cpp', 'signing.cpp']:
-            p = os.path.join(root, f)
-            with open(p, 'r') as file:
-                content = file.read()
-            # Заменяем жесткий путь \"/tmp\" на чтение переменной TMPDIR
-            content = content.replace('\"/tmp\"', '(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\")')
-            content = content.replace('\"/tmp/', '(std::string(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\") + \"/')
-            # Исправляем форматные вызовы ZUtil::StringFormatV(\"%s/...\")
-            content = content.replace('\"/tmp/%s\"', '\"%s/%s\"')
-            content = content.replace('\"/tmp/Requirements_%llu.blob\"', '(std::string(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\") + \"/Requirements_%llu.blob\").c_str()')
-            with open(p, 'w') as file:
-                file.write(content)
+# 2. Патчим fs.cpp: переопределяем GetTempFolder на возврат TMPDIR из окружения iOS Sandbox
+fs_cpp = 'zsign_src/src/common/fs.cpp'
+if os.path.exists(fs_cpp):
+    with open(fs_cpp, 'r') as f:
+        c = f.read()
+    c = c.replace('return \"/tmp\";', 'const char* t = getenv(\"TMPDIR\"); return (t && t[0] != \'\\\\0\') ? t : \".\";')
+    with open(fs_cpp, 'w') as f:
+        f.write(c)
 
-print('Точечный патчинг zsign завершен.')
+# 3. Патчим signing.cpp: заменяем жесткий /tmp на вызов ZFile::GetTempFolder()
+signing_cpp = 'zsign_src/src/signing.cpp'
+if os.path.exists(signing_cpp):
+    with open(signing_cpp, 'r') as f:
+        c = f.read()
+    c = c.replace('\"/tmp/Requirements_%llu.blob\"', '(std::string(ZFile::GetTempFolder()) + \"/Requirements_%llu.blob\").c_str()')
+    with open(signing_cpp, 'w') as f:
+        f.write(c)
+
+print('Точечный патчинг zsign завершен успешно.')
 "
 
 echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
