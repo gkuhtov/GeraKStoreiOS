@@ -53,28 +53,28 @@ public final class InstallPipeline: ObservableObject {
                     DispatchQueue.main.async {
                         switch result {
                         case .success(let signedIpaUrl):
-                            // 3. Генерация манифеста и запуск установки
                             self.progress = 0.95
-                            self.statusDescription = "Установка..."
+                            self.statusDescription = "Регистрация установки..."
 
-                            _ = InstallDispatcher.shared.generateManifest(
+                            InstallDispatcher.shared.triggerInstallation(
                                 bundleId: targetBundleId,
                                 version: app.version,
                                 title: targetTitle,
                                 ipaFileName: signedIpaUrl.lastPathComponent
-                            )
+                            ) { success in
+                                if success {
+                                    self.progress = 1.0
+                                    HapticManager.shared.success()
 
-                            self.progress = 1.0
-                            HapticManager.shared.success()
-
-                            InstallDispatcher.shared.triggerInstallation()
-
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
-                                BackgroundKeepAlive.shared.deactivate()
-                                StorageManager.shared.purgeTempBuilds()
-                                self.activeApp = nil
-                                self.progress = 0.0
-                                self.statusDescription = ""
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
+                                        BackgroundKeepAlive.shared.deactivate()
+                                        self.activeApp = nil
+                                        self.progress = 0.0
+                                        self.statusDescription = ""
+                                    }
+                                } else {
+                                    self.handleFailure("Не удалось инициировать установку iOS.")
+                                }
                             }
 
                         case .failure(let error):
