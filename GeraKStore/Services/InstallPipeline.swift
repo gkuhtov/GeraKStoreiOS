@@ -9,6 +9,8 @@ public final class InstallPipeline: ObservableObject {
     @Published public var statusDescription: String = ""
     @Published public var lastErrorMessage: String? = nil
 
+    private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
+
     private init() {}
 
     public func execute(app: AppItem, isClone: Bool = false, customName: String? = nil) {
@@ -19,6 +21,14 @@ public final class InstallPipeline: ObservableObject {
 
         HapticManager.shared.tap()
         BackgroundKeepAlive.shared.activate()
+
+        // Удерживаем процесс живым в фоне для отдачи файла демону installd
+        self.backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "OTA_Install_Serving") { [weak self] in
+            if let taskId = self?.backgroundTaskId, taskId != .invalid {
+                UIApplication.shared.endBackgroundTask(taskId)
+                self?.backgroundTaskId = .invalid
+            }
+        }
 
         // 1. Скачивание IPA
         DownloadManager.shared.progressHandler = { [weak self] currentProgress in
@@ -54,7 +64,7 @@ public final class InstallPipeline: ObservableObject {
                         switch result {
                         case .success(let signedIpaUrl):
                             self.progress = 0.95
-                            self.statusDescription = "Установка..."
+                            self.statusDescription = "Ожидание подтверждения..."
 
                             InstallDispatcher.shared.triggerInstallation(
                                 bundleId: targetBundleId,
@@ -66,8 +76,13 @@ public final class InstallPipeline: ObservableObject {
                                     self.progress = 1.0
                                     HapticManager.shared.success()
 
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
+                                    // Держим сервер активным 60 секунд для гарантированной передачи файла
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 60.0) {
                                         BackgroundKeepAlive.shared.deactivate()
+                                        if self.backgroundTaskId != .invalid {
+                                            UIApplication.shared.endBackgroundTask(self.backgroundTaskId)
+                                            self.backgroundTaskId = .invalid
+                                        }
                                         self.activeApp = nil
                                         self.progress = 0.0
                                         self.statusDescription = ""
@@ -90,6 +105,10 @@ public final class InstallPipeline: ObservableObject {
         DispatchQueue.main.async {
             HapticManager.shared.error()
             BackgroundKeepAlive.shared.deactivate()
+            if self.backgroundTaskId != .invalid {
+                UIApplication.shared.endBackgroundTask(self.backgroundTaskId)
+                self.backgroundTaskId = .invalid
+            }
             self.lastErrorMessage = error
             self.activeApp = nil
             self.progress = 0.0

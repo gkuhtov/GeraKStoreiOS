@@ -80,32 +80,64 @@ public final class OTAServer {
         let rawPath = parts[1].split(separator: "?").first.map(String.init) ?? parts[1]
         let path = (rawPath as NSString).removingPercentEncoding ?? rawPath
 
+        // Парсинг Range заголовка
+        var rangeHeader: String? = nil
+        for line in lines {
+            if line.lowercased().hasPrefix("range: bytes=") {
+                rangeHeader = String(line.dropFirst(13)).trimmingCharacters(in: .whitespaces)
+                break
+            }
+        }
+
         if path.hasSuffix(".ipa") {
-            serveFile(name: (path as NSString).lastPathComponent, mime: "application/octet-stream", isHead: isHead, connection: connection)
+            serveFile(name: (path as NSString).lastPathComponent, mime: "application/octet-stream", isHead: isHead, range: rangeHeader, connection: connection)
         } else {
             sendSimpleResponse(status: "404 Not Found", body: nil, connection: connection)
         }
     }
 
-    private func serveFile(name: String, mime: String, isHead: Bool, connection: NWConnection) {
+    private func serveFile(name: String, mime: String, isHead: Bool, range: String?, connection: NWConnection) {
         let fileUrl = PathConfig.getDirectory(PathConfig.signedAppsFolder).appendingPathComponent(name)
 
         guard FileManager.default.fileExists(atPath: fileUrl.path),
               let attrs = try? FileManager.default.attributesOfItem(atPath: fileUrl.path),
-              let fileSize = attrs[.size] as? UInt64 else {
+              let totalSize = attrs[.size] as? UInt64 else {
             sendSimpleResponse(status: "404 Not Found", body: nil, connection: connection)
             return
         }
 
-        let headers = "HTTP/1.1 200 OK\r\n" +
-                      "Content-Type: \(mime)\r\n" +
-                      "Content-Length: \(fileSize)\r\n" +
-                      "Accept-Ranges: bytes\r\n" +
-                      "Access-Control-Allow-Origin: *\r\n" +
-                      "Connection: close\r\n\r\n"
+        var startOffset: UInt64 = 0
+        var endOffset: UInt64 = totalSize - 1
+        var isPartial = false
+
+        if let range = range {
+            let components = range.split(separator: "-")
+            if let first = components.first, let start = UInt64(first) {
+                startOffset = start
+                isPartial = true
+            }
+            if components.count > 1, let end = UInt64(components[1]) {
+                endOffset = min(end, totalSize - 1)
+                isPartial = true
+            }
+        }
+
+        let contentLength = endOffset - startOffset + 1
+        let statusCode = isPartial ? "206 Partial Content" : "200 OK"
+
+        var headerStr = "HTTP/1.1 \(statusCode)\r\n" +
+                        "Content-Type: \(mime)\r\n" +
+                        "Content-Length: \(contentLength)\r\n" +
+                        "Accept-Ranges: bytes\r\n" +
+                        "Access-Control-Allow-Origin: *\r\n"
+
+        if isPartial {
+            headerStr += "Content-Range: bytes \(startOffset)-\(endOffset)/\(totalSize)\r\n"
+        }
+        headerStr += "Connection: close\r\n\r\n"
 
         if isHead {
-            connection.send(content: headers.data(using: .utf8), completion: .contentProcessed { _ in
+            connection.send(content: headerStr.data(using: .utf8), completion: .contentProcessed { _ in
                 connection.cancel()
             })
             return
@@ -116,31 +148,42 @@ public final class OTAServer {
             return
         }
 
-        connection.send(content: headers.data(using: .utf8), isComplete: false, completion: .contentProcessed { [weak self] error in
+        try? handle.seek(toOffset: startOffset)
+
+        connection.send(content: headerStr.data(using: .utf8), isComplete: false, completion: .contentProcessed { [weak self] error in
             if error != nil {
                 try? handle.close()
                 connection.cancel()
                 return
             }
-            self?.streamFile(handle: handle, connection: connection)
+            self?.streamFileChunked(handle: handle, bytesRemaining: contentLength, connection: connection)
         })
     }
 
-    private func streamFile(handle: FileHandle, connection: NWConnection) {
-        let data = handle.readData(ofLength: 512 * 1024)
+    private func streamFileChunked(handle: FileHandle, bytesRemaining: UInt64, connection: NWConnection) {
+        guard bytesRemaining > 0 else {
+            try? handle.close()
+            connection.cancel()
+            return
+        }
+
+        let chunkSize = min(UInt64(512 * 1024), bytesRemaining)
+        let data = handle.readData(ofLength: Int(chunkSize))
+
         if data.isEmpty {
             try? handle.close()
             connection.cancel()
             return
         }
 
+        let remaining = bytesRemaining - UInt64(data.count)
         connection.send(content: data, isComplete: false, completion: .contentProcessed { [weak self] error in
             if error != nil {
                 try? handle.close()
                 connection.cancel()
                 return
             }
-            self?.streamFile(handle: handle, connection: connection)
+            self?.streamFileChunked(handle: handle, bytesRemaining: remaining, connection: connection)
         })
     }
 
