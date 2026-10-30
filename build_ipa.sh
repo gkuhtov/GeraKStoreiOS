@@ -85,7 +85,7 @@ mkdir -p build/obj
 for c_file in $(find zsign_src -maxdepth 1 -name "*.c" 2>/dev/null); do
     base=$(basename "$c_file" .c)
     echo "Компиляция C: $c_file"
-    clang -O3 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+    clang -O3 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=18.0 \
         -I zsign_src -I "$OPENSSL_INCLUDE" \
         -c "$c_file" -o "build/obj/${base}.o"
 done
@@ -95,13 +95,13 @@ for cpp_file in $(find zsign_src -maxdepth 1 -name "*.cpp" 2>/dev/null); do
     base=$(basename "$cpp_file" .cpp)
     if [ "$base" == "main" ]; then continue; fi
     echo "Компиляция CPP: $cpp_file"
-    clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+    clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=18.0 \
         -I zsign_src -I "$OPENSSL_INCLUDE" \
         -c "$cpp_file" -o "build/obj/${base}.o"
 done
 
 # Компилируем мост zsign_bridge.cpp
-clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=18.0 \
     -I zsign_src -I "$OPENSSL_INCLUDE" \
     -c GeraKStore/Services/zsign_bridge.cpp -o build/obj/zsign_bridge.o
 
@@ -112,7 +112,7 @@ echo "==> Монолитная компиляция $APP_NAME..."
 APP_BUNDLE="build/Payload/$APP_NAME.app"
 mkdir -p "$APP_BUNDLE"
 
-swiftc -O -sdk "$SDK_PATH" -target arm64-apple-ios15.0 \
+swiftc -O -sdk "$SDK_PATH" -target arm64-apple-ios18.0 \
     -import-objc-header GeraKStore/Services/zsign_bridge.h \
     -I GeraKStore/Services \
     $SWIFT_FILES \
@@ -148,7 +148,7 @@ cat << PLIST_EOF > "$APP_BUNDLE/Info.plist"
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>MinimumOSVersion</key>
-    <string>15.0</string>
+    <string>18.0</string>
     <key>UIDeviceFamily</key>
     <array>
         <integer>1</integer>
