@@ -9,6 +9,7 @@ func run_zsign_direct(
     _ output_path: UnsafePointer<CChar>?,
     _ bundle_id: UnsafePointer<CChar>?,
     _ display_name: UnsafePointer<CChar>?,
+    _ temp_dir: UnsafePointer<CChar>?,
     _ error_log: UnsafeMutablePointer<CChar>?,
     _ max_log_len: Int32
 ) -> Int32
@@ -77,7 +78,11 @@ public final class IPASigningEngine {
 
             let password = UserDefaults.standard.string(forKey: "cert_password") ?? ""
 
-            progress(0.4, "Подпись zsign...")
+            let localTempDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("zsign_work")
+            try? fileManager.createDirectory(at: localTempDir, withIntermediateDirectories: true)
+            setenv("TMPDIR", localTempDir.path, 1)
+
+            progress(0.4, "Распаковка и подпись...")
 
             var logBuffer = [CChar](repeating: 0, count: 8192)
 
@@ -86,22 +91,25 @@ public final class IPASigningEngine {
                     password.withCString { passC in
                         provisionPath.path.withCString { provC in
                             outputIpaUrl.path.withCString { outC in
-                                let bIdC = newBundleId?.cString(using: .utf8)
-                                let dNameC = customDisplayName?.cString(using: .utf8)
+                                localTempDir.path.withCString { tempC in
+                                    let bIdC = newBundleId?.cString(using: .utf8)
+                                    let dNameC = customDisplayName?.cString(using: .utf8)
 
-                                return bIdC.withOptionalCString { bPtr in
-                                    dNameC.withOptionalCString { dPtr in
-                                        run_zsign_direct(
-                                            ipaC,
-                                            p12C,
-                                            passC,
-                                            provC,
-                                            outC,
-                                            bPtr,
-                                            dPtr,
-                                            &logBuffer,
-                                            Int32(logBuffer.count)
-                                        )
+                                    return bIdC.withOptionalCString { bPtr in
+                                        dNameC.withOptionalCString { dPtr in
+                                            run_zsign_direct(
+                                                ipaC,
+                                                p12C,
+                                                passC,
+                                                provC,
+                                                outC,
+                                                bPtr,
+                                                dPtr,
+                                                tempC,
+                                                &logBuffer,
+                                                Int32(logBuffer.count)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -109,6 +117,8 @@ public final class IPASigningEngine {
                     }
                 }
             }
+
+            try? fileManager.removeItem(at: localTempDir)
 
             let logString = String(cString: logBuffer).trimmingCharacters(in: .whitespacesAndNewlines)
 

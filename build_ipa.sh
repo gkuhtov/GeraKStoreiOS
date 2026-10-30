@@ -13,17 +13,29 @@ echo "==> Подготовка исходников zsign..."
 rm -rf zsign_src
 git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
 
-# Заменяем точку входа main -> zsign_main
 python3 -c "
 import os
-target = 'zsign_src/src/zsign.cpp'
-if os.path.exists(target):
-    with open(target, 'r') as f:
-        content = f.read()
-    content = content.replace('int main(', 'int zsign_main(')
-    with open(target, 'w') as f:
-        f.write(content)
-    print('Точка входа успешно заменена на zsign_main')
+
+for root, _, files in os.walk('zsign_src/src'):
+    for f in files:
+        if f.endswith(('.cpp', '.h')):
+            p = os.path.join(root, f)
+            with open(p, 'r', errors='ignore') as file:
+                content = file.read()
+            changed = False
+            if 'int main(' in content and f in ['zsign.cpp', 'main.cpp']:
+                content = content.replace('int main(', 'int zsign_main(')
+                changed = True
+            if '\"/tmp\"' in content:
+                content = content.replace('\"/tmp\"', '(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\")')
+                changed = True
+            if '\"/tmp/' in content:
+                content = content.replace('\"/tmp/', '(std::string(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\") + \"/\"')
+                changed = True
+            if changed:
+                with open(p, 'w') as file:
+                    file.write(content)
+print('Патчинг zsign под iOS Sandbox завершен.')
 "
 
 echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
@@ -68,7 +80,7 @@ mv *.o build/obj/
 echo "==> Поиск Swift-исходников..."
 SWIFT_FILES=$(find GeraKStore -name "*.swift" ! -name "GeraKStoreWidgetsBundle.swift" ! -name "InstallActivityWidget.swift")
 
-echo "==> Монолитная сборка GeraKStore с подключением libc++..."
+echo "==> Монолитная сборка GeraKStore..."
 xcrun --sdk iphoneos swiftc \
     -target $TARGET \
     -sdk $SDK_PATH \
@@ -165,4 +177,4 @@ PLIST
 
 echo "==> Упаковка GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Успешно собран монолитный IPA с движком zsign!"
+echo "==> Готово!"

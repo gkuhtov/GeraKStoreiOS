@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <cstring>
+#include <cstdlib>
 
 extern int zsign_main(int argc, char* argv[]);
 
@@ -16,9 +17,14 @@ int run_zsign_direct(
     const char* output_path,
     const char* bundle_id,
     const char* display_name,
+    const char* temp_dir,
     char* error_log,
     int max_log_len
 ) {
+    if (temp_dir && temp_dir[0] != '\0') {
+        setenv("TMPDIR", temp_dir, 1);
+    }
+
     std::vector<std::string> args = {"zsign"};
 
     if (p12_path && p12_path[0] != '\0') {
@@ -51,7 +57,6 @@ int run_zsign_direct(
         args.push_back(display_name);
     }
 
-    // Оптимальный уровень сжатия для ускорения на iOS
     args.push_back("-z");
     args.push_back("1");
 
@@ -65,7 +70,6 @@ int run_zsign_direct(
     }
     c_args.push_back(nullptr);
 
-    // Создаем pipe для перехвата Си-дескрипторов stdout и stderr (printf, puts)
     int pipe_fds[2];
     if (pipe(pipe_fds) == -1) {
         return -1;
@@ -92,15 +96,12 @@ int run_zsign_direct(
     fflush(stdout);
     fflush(stderr);
 
-    // Восстанавливаем дескрипторы
     dup2(saved_stdout, STDOUT_FILENO);
     dup2(saved_stderr, STDERR_FILENO);
     close(saved_stdout);
     close(saved_stderr);
 
-    // Считываем всё, что zsign вывел в консоль
     if (error_log && max_log_len > 0) {
-        // Делаем чтение неблокирующим
         fcntl(pipe_fds[0], F_SETFL, O_NONBLOCK);
         ssize_t bytes_read = read(pipe_fds[0], error_log, max_log_len - 1);
         if (bytes_read > 0) {

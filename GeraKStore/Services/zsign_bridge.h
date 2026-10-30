@@ -13,6 +13,7 @@ int run_zsign_direct(
     const char* output_path,
     const char* bundle_id,
     const char* display_name,
+    const char* temp_dir,
     char* error_log,
     int max_log_len
 );
