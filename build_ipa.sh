@@ -13,19 +13,30 @@ echo "==> Подготовка исходников zsign..."
 rm -rf zsign_src
 git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
 
-# Заменяем имя точки входа main -> zsign_main, чтобы не конфликтовать со SwiftUI @main
-sed -i '' 's/int main(/int zsign_main(/g' zsign_src/main.cpp 2>/dev/null || sed -i 's/int main(/int zsign_main(/g' zsign_src/main.cpp
+# Заменяем точку входа main -> zsign_main через python во избежание сбоев BSD sed
+python3 -c "
+with open('zsign_src/main.cpp', 'r') as f:
+    content = f.read()
+content = content.replace('int main(', 'int zsign_main(')
+with open('zsign_src/main.cpp', 'w') as f:
+    f.write(content)
+"
 
-# Получаем OpenSSL
-brew install openssl@3 || true
-OPENSSL_DIR=$(brew --prefix openssl@3)
+echo "==> Загрузка OpenSSL.xcframework для iOS..."
+if [ ! -d "build/OpenSSL.xcframework" ]; then
+    curl -sL "https://github.com/krzyzanowskim/OpenSSL/releases/download/1.1.2301/OpenSSL.xcframework.zip" -o build/openssl.zip
+    unzip -q build/openssl.zip -d build/
+fi
 
-echo "==> Компиляция C++ компонентов zsign в статические объектники..."
+OPENSSL_FRAMEWORK="build/OpenSSL.xcframework/ios-arm64/OpenSSL.framework"
+
+echo "==> Компиляция C++ компонентов zsign..."
 xcrun --sdk iphoneos clang++ \
     -target $TARGET \
     -isysroot $SDK_PATH \
     -O3 -std=c++11 \
-    -I$OPENSSL_DIR/include \
+    -F build/OpenSSL.xcframework/ios-arm64 \
+    -framework OpenSSL \
     -c zsign_src/*.cpp GeraKStore/Services/zsign_bridge.cpp
 
 mv *.o build/obj/
@@ -40,12 +51,16 @@ xcrun --sdk iphoneos swiftc \
     -O \
     -parse-as-library \
     -emit-executable \
-    -I GeraKStore/Services \
+    -F build/OpenSSL.xcframework/ios-arm64 \
+    -framework OpenSSL \
     -Xlinker build/obj/*.o \
-    -Xlinker -L$OPENSSL_DIR/lib \
-    -Xlinker -lcrypto \
+    -Xlinker -rpath -Xlinker @executable_path/Frameworks \
     -o Payload/GeraKStore.app/GeraKStore \
     $SWIFT_FILES
+
+echo "==> Встраивание фреймворка OpenSSL в бандл..."
+mkdir -p Payload/GeraKStore.app/Frameworks
+cp -R "$OPENSSL_FRAMEWORK" Payload/GeraKStore.app/Frameworks/
 
 echo "==> Создание Info.plist..."
 cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
@@ -124,4 +139,4 @@ PLIST
 
 echo "==> Упаковка GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Успешно собран монолитный IPA с прямым вызовом zsign!"
+echo "==> Успешно собран монолитный IPA!"
