@@ -6,16 +6,8 @@ public final class InstallDispatcher {
 
     private init() {}
 
-    public func generateLocalManifest(
-        bundleId: String,
-        version: String,
-        title: String,
-        ipaFileName: String
-    ) -> URL? {
-        let signedDir = PathConfig.getDirectory(PathConfig.signedAppsFolder)
-        let manifestUrl = signedDir.appendingPathComponent("manifest.plist")
-
-        let xmlContent = """
+    public func buildManifestXml(bundleId: String, version: String, title: String, ipaFileName: String) -> String {
+        return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
@@ -48,13 +40,6 @@ public final class InstallDispatcher {
         </dict>
         </plist>
         """
-
-        do {
-            try xmlContent.write(to: manifestUrl, atomically: true, encoding: .utf8)
-            return manifestUrl
-        } catch {
-            return nil
-        }
     }
 
     public func triggerInstallation(
@@ -66,26 +51,48 @@ public final class InstallDispatcher {
     ) {
         OTAServer.shared.start()
 
-        guard generateLocalManifest(
-            bundleId: bundleId,
-            version: version,
-            title: title,
-            ipaFileName: ipaFileName
-        ) != nil else {
+        let xml = buildManifestXml(bundleId: bundleId, version: version, title: title, ipaFileName: ipaFileName)
+
+        // Строгое RFC3986 percent-encoding
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        let encodedXml = xml.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        let bodyString = "content=\(encodedXml)&expiry_days=1"
+
+        guard let bodyData = bodyString.data(using: .utf8),
+              let url = URL(string: "https://dpaste.com/api/v2/") else {
             completion(false)
             return
         }
 
-        let itmsUrlString = "itms-services://?action=download-manifest&url=http://127.0.0.1:8080/manifest.plist"
-        guard let itmsUrl = URL(string: itmsUrlString) else {
-            completion(false)
-            return
-        }
+        var request = URLRequest(url: url, timeoutInterval: 10)
+        request.httpMethod = "POST"
+        request.httpBody = bodyData
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("GeraKStore/1.0", forHTTPHeaderField: "User-Agent")
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            UIApplication.shared.open(itmsUrl, options: [:]) { success in
-                completion(success)
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let httpRes = response as? HTTPURLResponse, httpRes.statusCode >= 200, httpRes.statusCode < 300,
+               let data = data,
+               let rawUrl = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               rawUrl.hasPrefix("http") {
+
+                let rawManifestUrl = rawUrl.hasSuffix(".txt") ? rawUrl : "\(rawUrl).txt"
+                let itmsUrlString = "itms-services://?action=download-manifest&url=\(rawManifestUrl)"
+
+                guard let itmsUrl = URL(string: itmsUrlString) else {
+                    completion(false)
+                    return
+                }
+
+                DispatchQueue.main.async {
+                    UIApplication.shared.open(itmsUrl, options: [:]) { opened in
+                        completion(opened)
+                    }
+                }
+            } else {
+                completion(false)
             }
-        }
+        }.resume()
     }
 }

@@ -1,6 +1,5 @@
 import Foundation
 import Network
-import Security
 
 public final class OTAServer {
     public static let shared = OTAServer()
@@ -15,27 +14,16 @@ public final class OTAServer {
         guard !isRunning else { return }
 
         do {
-            let parameters: NWParameters
-            if let identity = LocalIdentityGenerator.createLocalIdentity(),
-               let secId = sec_identity_create(identity) {
-                let tlsOptions = NWProtocolTLS.Options()
-                sec_protocol_options_set_local_identity(tlsOptions.securityProtocolOptions, secId)
-                sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, sec_complete in
-                    sec_complete(true)
-                }, .global())
-                parameters = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
-            } else {
-                parameters = NWParameters.tcp
-            }
-
+            let parameters = NWParameters.tcp
             parameters.allowLocalEndpointReuse = true
+
             self.listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
 
             self.listener?.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .ready:
                     self?.isRunning = true
-                    print("OTA сервер активен на порту \(self?.port ?? 8080)")
+                    print("OTA HTTP сервер запущен на порту \(self?.port ?? 8080)")
                 case .failed(let error):
                     print("Ошибка OTA сервера: \(error.localizedDescription)")
                     self?.stop()
@@ -92,9 +80,7 @@ public final class OTAServer {
         let rawPath = parts[1].split(separator: "?").first.map(String.init) ?? parts[1]
         let path = (rawPath as NSString).removingPercentEncoding ?? rawPath
 
-        if path.hasSuffix(".plist") {
-            serveFile(name: (path as NSString).lastPathComponent, mime: "text/xml", isHead: isHead, connection: connection)
-        } else if path.hasSuffix(".ipa") {
+        if path.hasSuffix(".ipa") {
             serveFile(name: (path as NSString).lastPathComponent, mime: "application/octet-stream", isHead: isHead, connection: connection)
         } else {
             sendSimpleResponse(status: "404 Not Found", body: nil, connection: connection)
@@ -111,15 +97,15 @@ public final class OTAServer {
             return
         }
 
-        var headerStr = "HTTP/1.1 200 OK\r\n" +
-                        "Content-Type: \(mime)\r\n" +
-                        "Content-Length: \(fileSize)\r\n" +
-                        "Accept-Ranges: bytes\r\n" +
-                        "Access-Control-Allow-Origin: *\r\n" +
-                        "Connection: close\r\n\r\n"
+        let headers = "HTTP/1.1 200 OK\r\n" +
+                      "Content-Type: \(mime)\r\n" +
+                      "Content-Length: \(fileSize)\r\n" +
+                      "Accept-Ranges: bytes\r\n" +
+                      "Access-Control-Allow-Origin: *\r\n" +
+                      "Connection: close\r\n\r\n"
 
         if isHead {
-            connection.send(content: headerStr.data(using: .utf8), completion: .contentProcessed { _ in
+            connection.send(content: headers.data(using: .utf8), completion: .contentProcessed { _ in
                 connection.cancel()
             })
             return
@@ -130,7 +116,7 @@ public final class OTAServer {
             return
         }
 
-        connection.send(content: headerStr.data(using: .utf8), isComplete: false, completion: .contentProcessed { [weak self] error in
+        connection.send(content: headers.data(using: .utf8), isComplete: false, completion: .contentProcessed { [weak self] error in
             if error != nil {
                 try? handle.close()
                 connection.cancel()
