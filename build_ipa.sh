@@ -16,7 +16,7 @@ git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
 python3 -c "
 import os
 
-# 1. Замена int main на int zsign_main в zsign.cpp
+# 1. Замена int main на int zsign_main
 zsign_cpp = 'zsign_src/src/zsign.cpp'
 if os.path.exists(zsign_cpp):
     with open(zsign_cpp, 'r') as f:
@@ -25,25 +25,26 @@ if os.path.exists(zsign_cpp):
     with open(zsign_cpp, 'w') as f:
         f.write(c)
 
-# 2. Патчим fs.cpp: переопределяем GetTempFolder на возврат TMPDIR из окружения iOS Sandbox
-fs_cpp = 'zsign_src/src/common/fs.cpp'
-if os.path.exists(fs_cpp):
-    with open(fs_cpp, 'r') as f:
-        c = f.read()
-    c = c.replace('return \"/tmp\";', 'const char* t = getenv(\"TMPDIR\"); return (t && t[0] != \'\\\\0\') ? t : \".\";')
-    with open(fs_cpp, 'w') as f:
-        f.write(c)
+# 2. Подмена пути /tmp на системную переменную TMPDIR песочницы iOS во всех исходниках
+for root, _, files in os.walk('zsign_src/src'):
+    for f in files:
+        if f.endswith(('.cpp', '.h')):
+            p = os.path.join(root, f)
+            with open(p, 'r', errors='ignore') as file:
+                content = file.read()
+            
+            # Заменяем жесткие шаблоны путей /tmp на %s с передачей TMPDIR
+            new_content = content
+            new_content = new_content.replace('\"/tmp/zsign_folder_%llu\"', '\"%s/zsign_folder_%llu\", (getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\")')
+            new_content = new_content.replace('\"/tmp/Requirements_%llu.blob\"', '\"%s/Requirements_%llu.blob\", (getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\")')
+            new_content = new_content.replace('\"/tmp\"', '(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\")')
 
-# 3. Патчим signing.cpp: заменяем жесткий /tmp на вызов ZFile::GetTempFolder()
-signing_cpp = 'zsign_src/src/signing.cpp'
-if os.path.exists(signing_cpp):
-    with open(signing_cpp, 'r') as f:
-        c = f.read()
-    c = c.replace('\"/tmp/Requirements_%llu.blob\"', '(std::string(ZFile::GetTempFolder()) + \"/Requirements_%llu.blob\").c_str()')
-    with open(signing_cpp, 'w') as f:
-        f.write(c)
+            if new_content != content:
+                with open(p, 'w') as file:
+                    file.write(new_content)
+                print(f'Пропатчен: {f}')
 
-print('Точечный патчинг zsign завершен успешно.')
+print('Патчинг zsign под Sandbox завершен.')
 "
 
 echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
