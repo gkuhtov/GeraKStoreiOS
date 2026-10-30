@@ -31,6 +31,8 @@ if [ ! -d "zsign_src" ]; then
 fi
 
 rm -rf zsign_src/build zsign_src/install.sh zsign_src/CMakeLists.txt
+rm -f zsign_src/src/third-party/minizip/iowin32.*
+rm -f zsign_src/third-party/minizip/iowin32.*
 
 perl -pi -e 's|StringFormat\("/tmp/zsign_|StringFormat("%s/zsign_", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp", |g' zsign_src/*.cpp zsign_src/common/*.cpp 2>/dev/null || true
 
@@ -53,7 +55,7 @@ if [ -z "$OPENSSL_INCLUDE" ] || [ -z "$OPENSSL_LIB" ]; then
 fi
 
 echo "==> Компиляция C/C++ исходников zsign..."
-ZSIGN_INCLUDES="-I zsign_src -I zsign_src/common -I $OPENSSL_INCLUDE"
+ZSIGN_INCLUDES="-I zsign_src -I zsign_src/src -I zsign_src/src/common -I zsign_src/src/third-party/minizip -I $OPENSSL_INCLUDE"
 COMMON_FLAGS="-O3 -isysroot $SDK_PATH -arch arm64 -miphoneos-version-min=18.0 $ZSIGN_INCLUDES"
 
 for c_file in $(find zsign_src -name "*.c" 2>/dev/null); do
@@ -72,7 +74,7 @@ echo "  [CXX] GeraKStore/Services/zsign_bridge.cpp -> build/obj/zsign_bridge.o"
 xcrun --sdk iphoneos clang++ -std=c++14 $COMMON_FLAGS -c GeraKStore/Services/zsign_bridge.cpp -o build/obj/zsign_bridge.o
 
 echo "==> Проверка символа zsign_main в объектном файле..."
-nm build/obj/zsign.o | grep "zsign_main"
+nm build/obj/*.o | grep "zsign_main" | head -n 1
 
 echo "==> Сбор списка Swift-исходников (исключая точку входа WidgetBundle)..."
 SWIFT_FILES=$(find GeraKStore -name "*.swift" ! -name "GeraKStoreWidgetsBundle.swift")
