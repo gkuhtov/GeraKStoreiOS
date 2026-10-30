@@ -51,48 +51,31 @@ public final class InstallDispatcher {
     ) {
         OTAServer.shared.start()
 
-        let xml = buildManifestXml(bundleId: bundleId, version: version, title: title, ipaFileName: ipaFileName)
+        let xml = buildManifestXml(
+            bundleId: bundleId,
+            version: version,
+            title: title,
+            ipaFileName: ipaFileName
+        )
 
-        // Строгое RFC3986 percent-encoding
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        let encodedXml = xml.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
-        let bodyString = "content=\(encodedXml)&expiry_days=1"
-
-        guard let bodyData = bodyString.data(using: .utf8),
-              let url = URL(string: "https://dpaste.com/api/v2/") else {
+        guard let xmlData = xml.data(using: .utf8) else {
             completion(false)
             return
         }
 
-        var request = URLRequest(url: url, timeoutInterval: 10)
-        request.httpMethod = "POST"
-        request.httpBody = bodyData
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue("GeraKStore/1.0", forHTTPHeaderField: "User-Agent")
+        let base64String = xmlData.base64EncodedString()
+        let manifestDataUrl = "data:text/xml;charset=utf-8;base64,\(base64String)"
 
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let httpRes = response as? HTTPURLResponse, httpRes.statusCode >= 200, httpRes.statusCode < 300,
-               let data = data,
-               let rawUrl = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-               rawUrl.hasPrefix("http") {
+        guard let encodedManifestUrl = manifestDataUrl.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let itmsUrl = URL(string: "itms-services://?action=download-manifest&url=\(encodedManifestUrl)") else {
+            completion(false)
+            return
+        }
 
-                let rawManifestUrl = rawUrl.hasSuffix(".txt") ? rawUrl : "\(rawUrl).txt"
-                let itmsUrlString = "itms-services://?action=download-manifest&url=\(rawManifestUrl)"
-
-                guard let itmsUrl = URL(string: itmsUrlString) else {
-                    completion(false)
-                    return
-                }
-
-                DispatchQueue.main.async {
-                    UIApplication.shared.open(itmsUrl, options: [:]) { opened in
-                        completion(opened)
-                    }
-                }
-            } else {
-                completion(false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            UIApplication.shared.open(itmsUrl, options: [:]) { success in
+                completion(success)
             }
-        }.resume()
+        }
     }
 }
