@@ -6,8 +6,16 @@ public final class InstallDispatcher {
 
     private init() {}
 
-    public func buildManifestContent(bundleId: String, version: String, title: String, ipaFileName: String) -> String {
-        return """
+    public func generateLocalManifest(
+        bundleId: String,
+        version: String,
+        title: String,
+        ipaFileName: String
+    ) -> URL? {
+        let signedDir = PathConfig.getDirectory(PathConfig.signedAppsFolder)
+        let manifestUrl = signedDir.appendingPathComponent("manifest.plist")
+
+        let xmlContent = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
@@ -40,6 +48,13 @@ public final class InstallDispatcher {
         </dict>
         </plist>
         """
+
+        do {
+            try xmlContent.write(to: manifestUrl, atomically: true, encoding: .utf8)
+            return manifestUrl
+        } catch {
+            return nil
+        }
     }
 
     public func triggerInstallation(
@@ -51,47 +66,26 @@ public final class InstallDispatcher {
     ) {
         OTAServer.shared.start()
 
-        let plistXml = buildManifestContent(
+        guard generateLocalManifest(
             bundleId: bundleId,
             version: version,
             title: title,
             ipaFileName: ipaFileName
-        )
-
-        // Загрузка манифеста на защищенный HTTPS сервис (DPaste / анонимный raw SSL шлюз)
-        guard let postData = "content=\(plistXml.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&expiry_days=1".data(using: .utf8),
-              let serviceUrl = URL(string: "https://dpaste.com/api/v2/") else {
+        ) != nil else {
             completion(false)
             return
         }
 
-        var request = URLRequest(url: serviceUrl)
-        request.httpMethod = "POST"
-        request.httpBody = postData
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        let itmsUrlString = "itms-services://?action=download-manifest&url=http://127.0.0.1:8080/manifest.plist"
+        guard let itmsUrl = URL(string: itmsUrlString) else {
+            completion(false)
+            return
+        }
 
-        URLSession.shared.dataTask(with: request) { data, _, error in
-            guard let data = data,
-                  let rawUrlString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !rawUrlString.isEmpty else {
-                completion(false)
-                return
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            UIApplication.shared.open(itmsUrl, options: [:]) { success in
+                completion(success)
             }
-
-            // Добавляем .txt / raw к ссылке для прямой отдачи XML
-            let manifestHttpsUrl = rawUrlString.hasSuffix(".txt") ? rawUrlString : "\(rawUrlString).txt"
-            let itmsUrlString = "itms-services://?action=download-manifest&url=\(manifestHttpsUrl)"
-
-            guard let itmsUrl = URL(string: itmsUrlString) else {
-                completion(false)
-                return
-            }
-
-            DispatchQueue.main.async {
-                UIApplication.shared.open(itmsUrl, options: [:]) { success in
-                    completion(success)
-                }
-            }
-        }.resume()
+        }
     }
 }

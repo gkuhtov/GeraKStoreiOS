@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import Security
 
 public final class OTAServer {
     public static let shared = OTAServer()
@@ -14,18 +15,29 @@ public final class OTAServer {
         guard !isRunning else { return }
 
         do {
-            let parameters = NWParameters.tcp
-            parameters.allowLocalEndpointReuse = true
+            let parameters: NWParameters
+            if let identity = LocalIdentityGenerator.createLocalIdentity(),
+               let secId = sec_identity_create(identity) {
+                let tlsOptions = NWProtocolTLS.Options()
+                sec_protocol_options_set_local_identity(tlsOptions.securityProtocolOptions, secId)
+                sec_protocol_options_set_verify_block(tlsOptions.securityProtocolOptions, { _, _, sec_complete in
+                    sec_complete(true)
+                }, .global())
+                parameters = NWParameters(tls: tlsOptions, tcp: NWProtocolTCP.Options())
+            } else {
+                parameters = NWParameters.tcp
+            }
 
+            parameters.allowLocalEndpointReuse = true
             self.listener = try NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!)
 
             self.listener?.stateUpdateHandler = { [weak self] state in
                 switch state {
                 case .ready:
                     self?.isRunning = true
-                    print("Локальный OTA HTTP-сервер активен на порту \(self?.port ?? 8080)")
+                    print("OTA сервер активен на порту \(self?.port ?? 8080)")
                 case .failed(let error):
-                    print("Сбой OTA-сервера: \(error.localizedDescription)")
+                    print("Ошибка OTA сервера: \(error.localizedDescription)")
                     self?.stop()
                 default:
                     break
@@ -85,7 +97,7 @@ public final class OTAServer {
         } else if path.hasSuffix(".ipa") {
             serveFile(name: (path as NSString).lastPathComponent, mime: "application/octet-stream", isHead: isHead, connection: connection)
         } else {
-            sendResponse(status: "404 Not Found", headers: [:], body: nil, connection: connection)
+            sendSimpleResponse(status: "404 Not Found", body: nil, connection: connection)
         }
     }
 
@@ -93,51 +105,43 @@ public final class OTAServer {
         let fileUrl = PathConfig.getDirectory(PathConfig.signedAppsFolder).appendingPathComponent(name)
 
         guard FileManager.default.fileExists(atPath: fileUrl.path),
-              let attributes = try? FileManager.default.attributesOfItem(atPath: fileUrl.path),
-              let fileSize = attributes[.size] as? UInt64 else {
-            sendResponse(status: "404 Not Found", headers: [:], body: nil, connection: connection)
+              let attrs = try? FileManager.default.attributesOfItem(atPath: fileUrl.path),
+              let fileSize = attrs[.size] as? UInt64 else {
+            sendSimpleResponse(status: "404 Not Found", body: nil, connection: connection)
             return
         }
 
-        let headers: [String: String] = [
-            "Content-Type": mime,
-            "Content-Length": "\(fileSize)",
-            "Accept-Ranges": "bytes",
-            "Access-Control-Allow-Origin": "*",
-            "Connection": "close"
-        ]
+        var headerStr = "HTTP/1.1 200 OK\r\n" +
+                        "Content-Type: \(mime)\r\n" +
+                        "Content-Length: \(fileSize)\r\n" +
+                        "Accept-Ranges: bytes\r\n" +
+                        "Access-Control-Allow-Origin: *\r\n" +
+                        "Connection: close\r\n\r\n"
 
         if isHead {
-            sendResponse(status: "200 OK", headers: headers, body: nil, connection: connection)
+            connection.send(content: headerStr.data(using: .utf8), completion: .contentProcessed { _ in
+                connection.cancel()
+            })
             return
         }
 
-        guard let fileHandle = try? FileHandle(forReadingFrom: fileUrl) else {
-            sendResponse(status: "500 Internal Server Error", headers: [:], body: nil, connection: connection)
+        guard let handle = try? FileHandle(forReadingFrom: fileUrl) else {
+            sendSimpleResponse(status: "500 Internal Server Error", body: nil, connection: connection)
             return
         }
-
-        // Отправка заголовков
-        var headerStr = "HTTP/1.1 200 OK\r\n"
-        for (k, v) in headers {
-            headerStr += "\(k): \(v)\r\n"
-        }
-        headerStr += "\r\n"
 
         connection.send(content: headerStr.data(using: .utf8), isComplete: false, completion: .contentProcessed { [weak self] error in
             if error != nil {
-                try? fileHandle.close()
+                try? handle.close()
                 connection.cancel()
                 return
             }
-            self?.streamFile(handle: fileHandle, connection: connection)
+            self?.streamFile(handle: handle, connection: connection)
         })
     }
 
     private func streamFile(handle: FileHandle, connection: NWConnection) {
-        let chunkSize = 512 * 1024 // 512 KB чанки для плавной передачи больших IPA
-        let data = handle.readData(ofLength: chunkSize)
-
+        let data = handle.readData(ofLength: 512 * 1024)
         if data.isEmpty {
             try? handle.close()
             connection.cancel()
@@ -154,27 +158,12 @@ public final class OTAServer {
         })
     }
 
-    private func sendResponse(status: String, headers: [String: String], body: Data?, connection: NWConnection) {
-        var headerStr = "HTTP/1.1 \(status)\r\n"
-        var allHeaders = headers
-        if let body = body {
-            allHeaders["Content-Length"] = "\(body.count)"
-        } else if allHeaders["Content-Length"] == nil {
-            allHeaders["Content-Length"] = "0"
-        }
-        allHeaders["Connection"] = "close"
-
-        for (k, v) in allHeaders {
-            headerStr += "\(k): \(v)\r\n"
-        }
-        headerStr += "\r\n"
-
-        var response = headerStr.data(using: .utf8) ?? Data()
-        if let body = body {
-            response.append(body)
-        }
-
-        connection.send(content: response, completion: .contentProcessed { _ in
+    private func sendSimpleResponse(status: String, body: Data?, connection: NWConnection) {
+        let len = body?.count ?? 0
+        let res = "HTTP/1.1 \(status)\r\nContent-Length: \(len)\r\nConnection: close\r\n\r\n"
+        var out = res.data(using: .utf8) ?? Data()
+        if let body = body { out.append(body) }
+        connection.send(content: out, completion: .contentProcessed { _ in
             connection.cancel()
         })
     }
