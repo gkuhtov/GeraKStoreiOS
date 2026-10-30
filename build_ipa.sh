@@ -18,7 +18,7 @@ python3 -c "
 import os
 
 target_file = None
-for root, _, files in os.walk('zsign_src'):
+for root, _, files in os.walk('zsign_src/src'):
     for f in files:
         if f in ['zsign.cpp', 'main.cpp']:
             target_file = os.path.join(root, f)
@@ -31,8 +31,6 @@ if target_file:
     with open(target_file, 'w') as f:
         f.write(content)
     print(f'Точка входа изменена в: {target_file}')
-else:
-    print('Файл точки входа не найден!')
 "
 
 echo "==> Загрузка OpenSSL.xcframework..."
@@ -44,18 +42,23 @@ fi
 OPENSSL_FRAMEWORK_DIR="build/OpenSSL.xcframework/ios-arm64"
 OPENSSL_HEADERS="$OPENSSL_FRAMEWORK_DIR/OpenSSL.framework/Headers"
 
-echo "==> Поиск C++ файлов zsign..."
-ZSIGN_SOURCES=$(find zsign_src -name "*.cpp")
+echo "==> Выборка исходников zsign для iOS..."
+# Берём C/C++ файлы строго из src, игнорируя каталоги Windows/VS
+ZSIGN_CPP=$(find zsign_src/src -name "*.cpp" ! -path "*/windows/*")
+ZSIGN_C=$(find zsign_src/src -name "*.c" ! -path "*/windows/*" 2>/dev/null || true)
 
-echo "==> Компиляция C++ компонентов..."
+echo "==> Компиляция C++ компонентов zsign..."
 xcrun --sdk iphoneos clang++ \
     -target $TARGET \
     -isysroot $SDK_PATH \
     -O3 -std=c++11 \
     -I$OPENSSL_HEADERS \
+    -Izsign_src/src \
+    -Izsign_src/src/common \
+    -Izsign_src/src/third-party \
     -F $OPENSSL_FRAMEWORK_DIR \
     -framework OpenSSL \
-    -c $ZSIGN_SOURCES GeraKStore/Services/zsign_bridge.cpp
+    -c $ZSIGN_CPP $ZSIGN_C GeraKStore/Services/zsign_bridge.cpp
 
 mv *.o build/obj/
 
@@ -157,4 +160,4 @@ PLIST
 
 echo "==> Упаковка GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Готово! Сформирован монолитный IPA с поддержкой прямого zsign."
+echo "==> Готово! Сформирован монолитный IPA с прямой интеграцией zsign."
