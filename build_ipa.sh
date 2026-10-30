@@ -113,7 +113,7 @@ APP_BUNDLE="build/Payload/$APP_NAME.app"
 mkdir -p "$APP_BUNDLE"
 
 swiftc -O -sdk "$SDK_PATH" -target arm64-apple-ios15.0 \
-    -import-objc-header GeraKStore/Services/GeraKStore-Bridging-Header.h \
+    -import-objc-header GeraKStore/Services/zsign_bridge.h \
     -I GeraKStore/Services \
     $SWIFT_FILES \
     build/obj/*.o \
