@@ -13,31 +13,49 @@ echo "==> Подготовка исходников zsign..."
 rm -rf zsign_src
 git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
 
-# Заменяем точку входа main -> zsign_main через python во избежание сбоев BSD sed
+# Заменяем точку входа main -> zsign_main в zsign.cpp
 python3 -c "
-with open('zsign_src/main.cpp', 'r') as f:
-    content = f.read()
-content = content.replace('int main(', 'int zsign_main(')
-with open('zsign_src/main.cpp', 'w') as f:
-    f.write(content)
+import os
+
+target_file = None
+for root, _, files in os.walk('zsign_src'):
+    for f in files:
+        if f in ['zsign.cpp', 'main.cpp']:
+            target_file = os.path.join(root, f)
+            break
+
+if target_file:
+    with open(target_file, 'r') as f:
+        content = f.read()
+    content = content.replace('int main(', 'int zsign_main(')
+    with open(target_file, 'w') as f:
+        f.write(content)
+    print(f'Точка входа изменена в: {target_file}')
+else:
+    print('Файл точки входа не найден!')
 "
 
-echo "==> Загрузка OpenSSL.xcframework для iOS..."
+echo "==> Загрузка OpenSSL.xcframework..."
 if [ ! -d "build/OpenSSL.xcframework" ]; then
     curl -sL "https://github.com/krzyzanowskim/OpenSSL/releases/download/1.1.2301/OpenSSL.xcframework.zip" -o build/openssl.zip
     unzip -q build/openssl.zip -d build/
 fi
 
-OPENSSL_FRAMEWORK="build/OpenSSL.xcframework/ios-arm64/OpenSSL.framework"
+OPENSSL_FRAMEWORK_DIR="build/OpenSSL.xcframework/ios-arm64"
+OPENSSL_HEADERS="$OPENSSL_FRAMEWORK_DIR/OpenSSL.framework/Headers"
 
-echo "==> Компиляция C++ компонентов zsign..."
+echo "==> Поиск C++ файлов zsign..."
+ZSIGN_SOURCES=$(find zsign_src -name "*.cpp")
+
+echo "==> Компиляция C++ компонентов..."
 xcrun --sdk iphoneos clang++ \
     -target $TARGET \
     -isysroot $SDK_PATH \
     -O3 -std=c++11 \
-    -F build/OpenSSL.xcframework/ios-arm64 \
+    -I$OPENSSL_HEADERS \
+    -F $OPENSSL_FRAMEWORK_DIR \
     -framework OpenSSL \
-    -c zsign_src/*.cpp GeraKStore/Services/zsign_bridge.cpp
+    -c $ZSIGN_SOURCES GeraKStore/Services/zsign_bridge.cpp
 
 mv *.o build/obj/
 
@@ -51,7 +69,7 @@ xcrun --sdk iphoneos swiftc \
     -O \
     -parse-as-library \
     -emit-executable \
-    -F build/OpenSSL.xcframework/ios-arm64 \
+    -F $OPENSSL_FRAMEWORK_DIR \
     -framework OpenSSL \
     -Xlinker build/obj/*.o \
     -Xlinker -rpath -Xlinker @executable_path/Frameworks \
@@ -60,7 +78,7 @@ xcrun --sdk iphoneos swiftc \
 
 echo "==> Встраивание фреймворка OpenSSL в бандл..."
 mkdir -p Payload/GeraKStore.app/Frameworks
-cp -R "$OPENSSL_FRAMEWORK" Payload/GeraKStore.app/Frameworks/
+cp -R "$OPENSSL_FRAMEWORK_DIR/OpenSSL.framework" Payload/GeraKStore.app/Frameworks/
 
 echo "==> Создание Info.plist..."
 cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
@@ -139,4 +157,4 @@ PLIST
 
 echo "==> Упаковка GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Успешно собран монолитный IPA!"
+echo "==> Готово! Сформирован монолитный IPA с поддержкой прямого zsign."
