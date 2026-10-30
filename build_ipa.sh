@@ -80,6 +80,12 @@ else
     OPENSSL_LIB=$(find openssl.xcframework/ios-arm64 -name "libcrypto.a" -o -name "OpenSSL" 2>/dev/null | head -n 1)
 fi
 
+# Патчим main.cpp в zsign_main
+if [ -f "zsign_src/main.cpp" ]; then
+    sed -i '' 's/int main(/int zsign_main(/g' zsign_src/main.cpp 2>/dev/null || sed -i 's/int main(/int zsign_main(/g' zsign_src/main.cpp
+    echo "Точка входа zsign_src/main.cpp переименована в zsign_main"
+fi
+
 echo "==> Компиляция C/C++ исходников zsign..."
 mkdir -p build/obj
 
@@ -106,6 +112,9 @@ done
 clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=18.0 \
     -I zsign_src -I "$OPENSSL_INCLUDE" \
     -c GeraKStore/Services/zsign_bridge.cpp -o build/obj/zsign_bridge.o
+clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=18.0 \
+    -I zsign_src -I "$OPENSSL_INCLUDE" \
+    -c zsign_src/main.cpp -o build/obj/zsign_main.o
 
 echo "==> Поиск Swift-исходников..."
 SWIFT_FILES=$(find GeraKStore -name "*.swift")
