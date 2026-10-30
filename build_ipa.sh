@@ -1,154 +1,139 @@
 #!/bin/bash
 set -e
 
+APP_NAME="GeraKStore"
+BUNDLE_ID="com.gerakstore.ios"
+
+# Чтение версии по SemVer
+if [ -f "VERSION" ]; then
+    VERSION=$(cat VERSION | tr -d '\r\n ')
+else
+    VERSION="0.4.1"
+fi
+
+BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo "41")
+
+echo "==> Сборка $APP_NAME v$VERSION (билд $BUILD_NUMBER)..."
+
 echo "==> Подготовка каталогов..."
-rm -rf Payload build GeraKStore.ipa
-mkdir -p Payload/GeraKStore.app build/obj
+rm -rf build Payload *.ipa
+mkdir -p build/Payload
 
 echo "==> Определение SDK iOS..."
 SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-TARGET="arm64-apple-ios16.1"
 
 echo "==> Подготовка исходников zsign..."
-rm -rf zsign_src
-git clone --depth 1 https://github.com/zhlynn/zsign.git zsign_src
-
-python3 -c "
-import os
-
-# 1. Замена int main на int zsign_main
-zsign_cpp = 'zsign_src/src/zsign.cpp'
-if os.path.exists(zsign_cpp):
-    with open(zsign_cpp, 'r') as f:
-        c = f.read()
-    c = c.replace('int main(', 'int zsign_main(')
-    with open(zsign_cpp, 'w') as f:
-        f.write(c)
-
-# 2. Подмена пути /tmp на системную переменную TMPDIR песочницы iOS во всех исходниках
-for root, _, files in os.walk('zsign_src/src'):
-    for f in files:
-        if f.endswith(('.cpp', '.h')):
-            p = os.path.join(root, f)
-            with open(p, 'r', errors='ignore') as file:
-                content = file.read()
-            
-            # Заменяем жесткие шаблоны путей /tmp на %s с передачей TMPDIR
-            new_content = content
-            new_content = new_content.replace('\"/tmp/zsign_folder_%llu\"', '\"%s/zsign_folder_%llu\", (getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\")')
-            new_content = new_content.replace('\"/tmp/Requirements_%llu.blob\"', '\"%s/Requirements_%llu.blob\", (getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\")')
-            new_content = new_content.replace('\"/tmp\"', '(getenv(\"TMPDIR\") ? getenv(\"TMPDIR\") : \".\")')
-
-            if new_content != content:
-                with open(p, 'w') as file:
-                    file.write(new_content)
-                print(f'Пропатчен: {f}')
-
-print('Патчинг zsign под Sandbox завершен.')
-"
-
-echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
-if [ ! -d "build/OpenSSL.xcframework" ]; then
-    curl -sL "https://github.com/krzyzanowskim/OpenSSL/releases/download/3.3.2000/OpenSSL.xcframework.zip" -o build/openssl3.zip
-    unzip -q build/openssl3.zip -d build/
+if [ ! -d "zsign_src" ]; then
+    git clone https://github.com/zhlynn/zsign.git zsign_src
 fi
 
-OPENSSL_FRAMEWORK_DIR="build/OpenSSL.xcframework/ios-arm64"
-OPENSSL_HEADERS="$OPENSSL_FRAMEWORK_DIR/OpenSSL.framework/Headers"
+# Патчинг путей zsign под Sandbox
+python3 - << 'PYEOF'
+import os
+
+def patch_file(filepath, old_str, new_str):
+    if not os.path.exists(filepath):
+        return
+    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+        content = f.read()
+    if old_str in content:
+        content = content.replace(old_str, new_str)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(content)
+        print(f"Пропатчен: {os.path.basename(filepath)}")
+
+patch_file("zsign_src/signing.cpp", 'StringFormat("/tmp/zsign_%llu",', 'StringFormat("%s/zsign_%llu", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp",')
+patch_file("zsign_src/fs.cpp", 'StringFormat("/tmp/zsign_folder_%llu",', 'StringFormat("%s/zsign_folder_%llu", getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp",')
+PYEOF
+
+echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
+if [ ! -d "openssl.xcframework" ]; then
+    curl -sL "https://github.com/passepartoutvpn/openssl-apple/releases/download/3.3.200/openssl.xcframework.zip" -o openssl.zip
+    unzip -q openssl.zip
+    rm -f openssl.zip
+fi
+
+OPENSSL_INCLUDE="openssl.xcframework/ios-arm64/Headers"
+OPENSSL_LIB="openssl.xcframework/ios-arm64/libcrypto.a"
 
 echo "==> Компиляция C-исходников (minizip)..."
-MINIZIP_C="zsign_src/src/third-party/minizip/ioapi.c zsign_src/src/third-party/minizip/zip.c zsign_src/src/third-party/minizip/unzip.c"
-
-xcrun --sdk iphoneos clang \
-    -target $TARGET \
-    -isysroot $SDK_PATH \
-    -O3 \
-    -Izsign_src/src \
-    -Izsign_src/src/third-party \
-    -c $MINIZIP_C
-
-mv *.o build/obj/
+mkdir -p build/obj
+clang -O3 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+    -I zsign_src -I "$OPENSSL_INCLUDE" \
+    -c zsign_src/zip.c -o build/obj/zip.o
+clang -O3 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+    -I zsign_src -I "$OPENSSL_INCLUDE" \
+    -c zsign_src/ioapi.c -o build/obj/ioapi.o
 
 echo "==> Компиляция C++ исходников zsign..."
-ZSIGN_CPP=$(find zsign_src/src -name "*.cpp" ! -path "*/windows/*")
-
-xcrun --sdk iphoneos clang++ \
-    -target $TARGET \
-    -isysroot $SDK_PATH \
-    -O3 -std=c++17 \
-    -I$OPENSSL_HEADERS \
-    -Izsign_src/src \
-    -Izsign_src/src/common \
-    -Izsign_src/src/third-party \
-    -F $OPENSSL_FRAMEWORK_DIR \
-    -framework OpenSSL \
-    -c $ZSIGN_CPP GeraKStore/Services/zsign_bridge.cpp
-
-mv *.o build/obj/
+clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+    -I zsign_src -I "$OPENSSL_INCLUDE" \
+    -c zsign_src/zsign.cpp -o build/obj/zsign.o
+clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+    -I zsign_src -I "$OPENSSL_INCLUDE" \
+    -c zsign_src/signing.cpp -o build/obj/signing.o
+clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+    -I zsign_src -I "$OPENSSL_INCLUDE" \
+    -c zsign_src/bundle.cpp -o build/obj/bundle.o
+clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+    -I zsign_src -I "$OPENSSL_INCLUDE" \
+    -c zsign_src/macho.cpp -o build/obj/macho.o
+clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+    -I zsign_src -I "$OPENSSL_INCLUDE" \
+    -c zsign_src/fs.cpp -o build/obj/fs.o
+clang++ -O3 -std=c++11 -isysroot "$SDK_PATH" -arch arm64 -miphoneos-version-min=15.0 \
+    -I zsign_src -I "$OPENSSL_INCLUDE" \
+    -c GeraKStore/Services/zsign_bridge.cpp -o build/obj/zsign_bridge.o
 
 echo "==> Поиск Swift-исходников..."
-SWIFT_FILES=$(find GeraKStore -name "*.swift" ! -name "GeraKStoreWidgetsBundle.swift" ! -name "InstallActivityWidget.swift")
+SWIFT_FILES=$(find GeraKStore -name "*.swift")
 
-echo "==> Монолитная сборка GeraKStore..."
-xcrun --sdk iphoneos swiftc \
-    -target $TARGET \
-    -sdk $SDK_PATH \
-    -O \
-    -parse-as-library \
-    -emit-executable \
-    -F $OPENSSL_FRAMEWORK_DIR \
-    -framework OpenSSL \
-    -Xlinker -lz \
-    -Xlinker -lc++ \
-    -Xlinker build/obj/*.o \
-    -Xlinker -rpath -Xlinker @executable_path/Frameworks \
-    -o Payload/GeraKStore.app/GeraKStore \
-    $SWIFT_FILES
+echo "==> Монолитная компиляция $APP_NAME..."
+APP_BUNDLE="build/Payload/$APP_NAME.app"
+mkdir -p "$APP_BUNDLE"
 
-echo "==> Встраивание OpenSSL фреймворка в бандл..."
-mkdir -p Payload/GeraKStore.app/Frameworks
-cp -R "$OPENSSL_FRAMEWORK_DIR/OpenSSL.framework" Payload/GeraKStore.app/Frameworks/
+swiftc -O -sdk "$SDK_PATH" -target arm64-apple-ios15.0 \
+    -import-objc-header GeraKStore/Services/GeraKStore-Bridging-Header.h \
+    -I GeraKStore/Services \
+    $SWIFT_FILES \
+    build/obj/*.o \
+    "$OPENSSL_LIB" \
+    -lz -framework Foundation -framework UIKit -framework SwiftUI -framework Security -framework Network \
+    -o "$APP_BUNDLE/$APP_NAME"
 
-echo "==> Создание Info.plist..."
-cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
+echo "==> Автоматическая генерация универсального Info.plist для G-Box..."
+cat << PLIST_EOF > "$APP_BUNDLE/Info.plist"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>ru</string>
+    <key>CFBundleDisplayName</key>
+    <string>$APP_NAME</string>
     <key>CFBundleExecutable</key>
-    <string>GeraKStore</string>
+    <string>$APP_NAME</string>
     <key>CFBundleIdentifier</key>
-    <string>com.gkuhtov.gerakstore</string>
+    <string>$BUNDLE_ID</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>GeraKStore</string>
-    <key>CFBundleIcons</key>
-    <dict>
-        <key>CFBundlePrimaryIcon</key>
-        <dict>
-            <key>CFBundleIconFiles</key>
-            <array>
-                <string>AppIcon</string>
-            </array>
-            <key>CFBundleIconName</key>
-            <string>AppIcon</string>
-        </dict>
-    </dict>
+    <string>$APP_NAME</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.4.1</string>
+    <string>$VERSION</string>
     <key>CFBundleVersion</key>
-    <string>41</string>
+    <string>$BUILD_NUMBER</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
-    <key>UIRequiresFullScreen</key>
-    <true/>
     <key>MinimumOSVersion</key>
-    <string>16.1</string>
+    <string>15.0</string>
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>1</integer>
+        <integer>2</integer>
+    </array>
     <key>UIRequiredDeviceCapabilities</key>
     <array>
         <string>arm64</string>
@@ -157,22 +142,6 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
-    <key>NSFaceIDUsageDescription</key>
-    <string>Используется для защиты доступа к GeraKStore</string>
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>Используется для локальной установки подписанных приложений через OTA сервис</string>
-    <key>NSSupportsLiveActivities</key>
-    <true/>
-    <key>UIBackgroundModes</key>
-    <array>
-        <string>audio</string>
-        <string>processing</string>
-    </array>
-    <key>UILaunchScreen</key>
-    <dict>
-        <key>UIColorName</key>
-        <string>black</string>
-    </dict>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>
@@ -180,10 +149,22 @@ cat << 'PLIST' > Payload/GeraKStore.app/Info.plist
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Необходимо для локальной установки и синхронизации приложений внутри GeraKStore.</string>
 </dict>
 </plist>
-PLIST
+PLIST_EOF
 
-echo "==> Упаковка GeraKStore.ipa..."
-zip -r9 GeraKStore.ipa Payload
-echo "==> Сборка завершена!"
+# Копируем ассеты и иконки, если есть
+if [ -d "GeraKStore/Resources" ]; then
+    cp -R GeraKStore/Resources/* "$APP_BUNDLE/" 2>/dev/null || true
+fi
+
+echo "==> Упаковка чистого IPA без мусорных файлов..."
+cd build
+find . -name ".DS_Store" -delete
+zip -qr -9 "${APP_NAME}_v${VERSION}_b${BUILD_NUMBER}.ipa" Payload
+mv "${APP_NAME}_v${VERSION}_b${BUILD_NUMBER}.ipa" "../${APP_NAME}.ipa"
+cd ..
+
+echo "==> Готово: ${APP_NAME}.ipa успешно сформирован (версия $VERSION, билд $BUILD_NUMBER)!"
