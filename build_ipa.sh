@@ -28,7 +28,6 @@ if os.path.exists(target):
 
 echo "==> Загрузка OpenSSL 3.x XCFramework для iOS..."
 if [ ! -d "build/OpenSSL.xcframework" ]; then
-    # Скачиваем официальную сборку OpenSSL 3.3.x для Apple платформ
     curl -sL "https://github.com/krzyzanowskim/OpenSSL/releases/download/3.3.2000/OpenSSL.xcframework.zip" -o build/openssl3.zip
     unzip -q build/openssl3.zip -d build/
 fi
@@ -37,7 +36,6 @@ OPENSSL_FRAMEWORK_DIR="build/OpenSSL.xcframework/ios-arm64"
 OPENSSL_HEADERS="$OPENSSL_FRAMEWORK_DIR/OpenSSL.framework/Headers"
 
 echo "==> Компиляция C-исходников (minizip)..."
-# Берем только нужные для POSIX файлы minizip, исключая iowin32 и mztools
 MINIZIP_C="zsign_src/src/third-party/minizip/ioapi.c zsign_src/src/third-party/minizip/zip.c zsign_src/src/third-party/minizip/unzip.c"
 
 xcrun --sdk iphoneos clang \
@@ -70,7 +68,7 @@ mv *.o build/obj/
 echo "==> Поиск Swift-исходников..."
 SWIFT_FILES=$(find GeraKStore -name "*.swift" ! -name "GeraKStoreWidgetsBundle.swift" ! -name "InstallActivityWidget.swift")
 
-echo "==> Монолитная сборка GeraKStore..."
+echo "==> Монолитная сборка GeraKStore с подключением libc++..."
 xcrun --sdk iphoneos swiftc \
     -target $TARGET \
     -sdk $SDK_PATH \
@@ -80,6 +78,7 @@ xcrun --sdk iphoneos swiftc \
     -F $OPENSSL_FRAMEWORK_DIR \
     -framework OpenSSL \
     -Xlinker -lz \
+    -Xlinker -lc++ \
     -Xlinker build/obj/*.o \
     -Xlinker -rpath -Xlinker @executable_path/Frameworks \
     -o Payload/GeraKStore.app/GeraKStore \
@@ -166,4 +165,4 @@ PLIST
 
 echo "==> Упаковка GeraKStore.ipa..."
 zip -r9 GeraKStore.ipa Payload
-echo "==> Успешно собран монолитный IPA с движком zsign на OpenSSL 3!"
+echo "==> Успешно собран монолитный IPA с движком zsign!"
